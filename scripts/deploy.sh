@@ -15,18 +15,18 @@ ADMIN=$(stellar keys address "$IDENT")
 echo "      admin: $ADMIN"
 
 echo "[2/5] build wasm"
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 echo "[3/5] deploy reputation"
 REP_ID=$(stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/reputation.wasm \
+  --wasm target/wasm32v1-none/release/reputation.wasm \
   --source "$IDENT" --network "$NET")
 stellar contract invoke --id "$REP_ID" --source "$IDENT" --network "$NET" --send=yes \
   -- initialize --admin "$ADMIN"
 
 echo "[4/5] deploy circle"
 CIRCLE_ID=$(stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/circle.wasm \
+  --wasm target/wasm32v1-none/release/circle.wasm \
   --source "$IDENT" --network "$NET")
 stellar contract invoke --id "$CIRCLE_ID" --source "$IDENT" --network "$NET" --send=yes \
   -- initialize --admin "$ADMIN" --reputation "$REP_ID"
