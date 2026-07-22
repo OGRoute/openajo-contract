@@ -11,6 +11,9 @@ contributing, and recorded permanently in the on-chain reputation registry.
 Deposits *price* default; reputation makes repeat defaulting visible to every
 future circle.
 
+📖 **[Documentation](https://ogroute.gitbook.io/ogroute-docs)** — protocol
+mechanics, contract reference, user guides, and developer setup.
+
 ## Contracts
 
 | Contract | Responsibility |
