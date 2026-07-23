@@ -1,10 +1,7 @@
----
-description: >-
-  The Soroban smart contracts behind OpenAjo — rotating savings circles on
-  Stellar, enforced by code instead of a collector you have to trust.
----
-
 # Introduction
+
+> The Soroban smart contracts behind OpenAjo — rotating savings circles on
+> Stellar, enforced by code instead of a collector you have to trust.
 
 This is the contract-level documentation for **openajo-contract**, the on-chain
 core of [OpenAjo](https://ogroute.gitbook.io/ogroute-docs) — rotating savings
@@ -64,7 +61,8 @@ proposing any change there.
 * Function-by-function → [`circle` reference](reference/circle.md)
 * Building and deploying → [Build and test](building/build-and-test.md)
 
-{% hint style="danger" %}
-OpenAjo is **unaudited and testnet-only**. These contracts hold funds and have
-not been through a security audit. Do not deploy with mainnet value.
-{% endhint %}
+> 🚨 **Important**
+>
+> OpenAjo is **unaudited and testnet-only**. These contracts hold funds and have
+> not been through a security audit. Do not deploy with mainnet value.
+

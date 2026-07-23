@@ -4,12 +4,12 @@ Both contracts publish events on every state change. These are consumed by the
 app repo's indexer, and their shapes are a **compatibility contract** between the
 two repositories.
 
-{% hint style="warning" %}
-Changing a topic pair or a data tuple silently breaks every consumer — the
-indexer's decoder returns `null` for a shape it does not recognise rather than
-erroring. Any such change requires coordinated issues in both repos, and the
-contract change must ship and deploy first. The source carries this warning too.
-{% endhint %}
+> ⚠️ **Note**
+>
+> Changing a topic pair or a data tuple silently breaks every consumer — the
+> indexer's decoder returns `null` for a shape it does not recognise rather than
+> erroring. Any such change requires coordinated issues in both repos, and the
+> contract change must ship and deploy first. The source carries this warning too.
 
 Every event uses a two-symbol topic: a namespace and a name.
 

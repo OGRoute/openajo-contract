@@ -33,11 +33,11 @@ Requires `creator` auth. Reverts `BadParams` unless:
 
 `token` is the SAC address of the asset the circle runs in.
 
-{% hint style="info" %}
-There is currently no upper bound on `size`. A very large circle can exceed the
-settlement resource budget — [issue #1](https://github.com/OGRoute/openajo-contract/issues/1)
-and [issue #2](https://github.com/OGRoute/openajo-contract/issues/2).
-{% endhint %}
+> ℹ️ **Note**
+>
+> There is currently no upper bound on `size`. A very large circle can exceed the
+> settlement resource budget — [issue #1](https://github.com/OGRoute/openajo-contract/issues/1)
+> and [issue #2](https://github.com/OGRoute/openajo-contract/issues/2).
 
 ### `join(circle_id, member)`
 
