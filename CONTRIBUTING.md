@@ -1,5 +1,8 @@
 # Contributing to openajo-contract
 
+Please read the [Code of Conduct](CODE_OF_CONDUCT.md) first. Comment on an
+issue to claim it before you start, so two people do not do the same work.
+
 ## Setup
 
 ```bash

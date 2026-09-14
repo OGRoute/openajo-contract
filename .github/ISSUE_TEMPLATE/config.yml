@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/OGRoute/openajo-contract/security/advisories/new
+    about: OpenAjo escrows funds. Report vulnerabilities privately, never in a public issue.
+  - name: Contract reference and design docs
+    url: https://ogroute.gitbook.io/ogroute-docs
+    about: Lifecycle, settlement and reputation, plus the protocol-level docs.

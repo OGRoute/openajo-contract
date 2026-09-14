@@ -1,0 +1,46 @@
+name: Bug report
+description: A contract function behaves differently from its documentation.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Anything that could move, strand or leak escrowed funds is a security
+        issue** — report it through
+        [private vulnerability reporting](https://github.com/OGRoute/openajo-contract/security/advisories/new),
+        not here.
+  - type: dropdown
+    id: contract
+    attributes:
+      label: Contract
+      options:
+        - circle
+        - reputation
+        - scripts / CI
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Include the function called, its arguments, and the error (e.g. `Error(Contract, #7)`).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: A failing test in `contracts/*/src/test.rs` is the best reproduction. A testnet transaction hash also works.
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: rustc 1.9x, soroban-sdk 22, stellar-cli 27, testnet
