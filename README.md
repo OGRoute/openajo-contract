@@ -1,5 +1,9 @@
 # OpenAjo — contracts
 
+[![CI](https://github.com/OGRoute/openajo-contract/actions/workflows/ci.yml/badge.svg)](https://github.com/OGRoute/openajo-contract/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Good first issues](https://img.shields.io/github/issues/OGRoute/openajo-contract/good%20first%20issue?label=good%20first%20issues)](https://github.com/OGRoute/openajo-contract/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+
 Rotating savings (ajo / esusu / adashe) on Stellar, enforced by Soroban smart
 contracts instead of a human collector.
 
@@ -53,6 +57,17 @@ The SDK, indexer/API and web app live in the companion repo **openajo-app**.
 Contract events (`circle`/`create`, `join`, `start`, `contrib`, `slash`,
 `default`, `payout`, `complete`, `cancel`) are the integration surface — the
 indexer is built by folding them.
+
+## Contributing
+
+This repo holds every escrowed fund in the system, so the review bar is high
+and the issues are scoped for it: each lists acceptance criteria, the functions
+involved, and the tests expected. Start with a
+[`good first issue`](https://github.com/OGRoute/openajo-contract/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22),
+comment to claim it, then follow [CONTRIBUTING.md](CONTRIBUTING.md).
+
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md) — anything that can move, strand or leak funds is reported privately
 
 ## License
 

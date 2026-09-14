@@ -1,0 +1,38 @@
+name: Feature or improvement
+description: Propose a change to the circle or reputation contracts.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Who is affected and what can they not do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: New or changed functions, storage keys, errors and events.
+    validations:
+      required: true
+  - type: textarea
+    id: funds
+    attributes:
+      label: Effect on funds
+      description: Which balances can this change move, and under whose authorisation?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] ...
+        - [ ] Exact-balance tests for every money path touched
+  - type: checkboxes
+    id: app
+    attributes:
+      label: App impact
+      options:
+        - label: This changes function signatures or event shapes (open a linked issue in openajo-app)
