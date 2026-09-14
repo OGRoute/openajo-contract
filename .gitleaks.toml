@@ -1,0 +1,21 @@
+title = "openajo gitleaks config"
+
+# Start from gitleaks' built-in rules.
+[extend]
+useDefault = true
+
+# Stellar strkeys: G... account IDs and C... contract IDs are public by design
+# and appear throughout the README, deploy script and docs. Their 56-char
+# base32 shape trips the generic-api-key entropy rule, so allow exactly that shape.
+[[allowlists]]
+description = "Stellar public account IDs and contract IDs"
+regexTarget = "secret"
+regexes = ['''^[GC][A-Z2-7]{55}$''']
+
+# S... secret seeds are what actually control funds; gitleaks has no built-in
+# rule for them. scripts/deploy.sh must only ever reference identities by name.
+[[rules]]
+id = "stellar-secret-seed"
+description = "Stellar secret seed (S... strkey)"
+regex = '''\bS[A-Z2-7]{55}\b'''
+keywords = ["S"]
