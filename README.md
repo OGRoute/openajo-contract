@@ -40,11 +40,28 @@ REPUTATION_CONTRACT_ID = CDXPH2PYUTRW7GV57X6CJH3E3JOPROSC23NXPMAXOO3EOBI5UTCB2GT
 
 Explorer: <https://stellar.expert/explorer/testnet/contract/CCLVOHGHDH32GWFAMCEMVHLNJSF6ENVHERYWU2OHUYWWLAOKLVR3HGKS>
 
+### Verify the deployment yourself
+
+`deploy.sh` uploads the unoptimized release build, so the deployed wasm is
+byte-identical to what this tree builds. Check it without trusting us:
+
+```bash
+./scripts/verify-deployment.sh
+#   circle: MATCH   7568a64ef524efe4…  CCLVOHGH…
+#   reputation: MATCH   b413c6fee64a6ed3…  CDXPH2PY…
+```
+
+It only reads the network — no keys, no funds. A mismatch is expected on a
+branch that changes contract code, since the deployed ids still run the
+previously deployed build. Stellar testnet is also reset periodically, which
+wipes the contracts until they are redeployed; the same workflow is available
+manually under **Actions → Verify deployment**.
+
 ## Quick start
 
 ```bash
 rustup target add wasm32v1-none
-cargo test                                        # 19 tests
+cargo test                                        # 30 tests
 cargo build --target wasm32v1-none --release      # wasm artifacts
 ./scripts/deploy.sh                               # deploy + wire to testnet
 ```

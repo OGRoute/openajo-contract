@@ -1,0 +1,65 @@
+name: Verify deployment
+
+# Compares the wasm built from this branch against what is actually deployed.
+#
+# Manual only, deliberately: Stellar testnet is reset periodically, which wipes
+# the deployed contracts until they are redeployed. A schedule would turn this
+# red for a reason that says nothing about the code.
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: Stellar network
+        default: testnet
+        type: string
+      circle_id:
+        description: Circle contract id (blank = the id in the script)
+        default: ""
+        type: string
+      reputation_id:
+        description: Reputation contract id (blank = the id in the script)
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Deployed wasm matches source
+    runs-on: ubuntu-latest
+    env:
+      STELLAR_CLI_VERSION: 28.1.0
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install stellar CLI
+        run: |
+          curl -sSfL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin stellar
+          stellar --version
+
+      - name: Verify
+        env:
+          STELLAR_NETWORK: ${{ inputs.network }}
+          CIRCLE_CONTRACT_ID: ${{ inputs.circle_id }}
+          REPUTATION_CONTRACT_ID: ${{ inputs.reputation_id }}
+        run: |
+          # Empty inputs must fall back to the script's defaults.
+          [ -n "$CIRCLE_CONTRACT_ID" ] || unset CIRCLE_CONTRACT_ID
+          [ -n "$REPUTATION_CONTRACT_ID" ] || unset REPUTATION_CONTRACT_ID
+          ./scripts/verify-deployment.sh
