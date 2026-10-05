@@ -454,3 +454,5 @@ fn is_paid(env: &Env, id: u32, cycle: u32, member: &Address) -> bool {
 }
 
 mod test;
+
+mod test_invariants;

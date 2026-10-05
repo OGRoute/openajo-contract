@@ -7,21 +7,21 @@ use soroban_sdk::{
     Address, Env,
 };
 
-const CONTRIB: i128 = 100;
-const DEPOSIT: i128 = 150;
-const PERIOD: u64 = 3600;
+pub(crate) const CONTRIB: i128 = 100;
+pub(crate) const DEPOSIT: i128 = 150;
+pub(crate) const PERIOD: u64 = 3600;
 
-struct Fixture<'a> {
-    env: Env,
-    client: CircleContractClient<'a>,
-    rep: reputation::ReputationContractClient<'a>,
-    token: TokenClient<'a>,
-    members: [Address; 3],
+pub(crate) struct Fixture<'a> {
+    pub(crate) env: Env,
+    pub(crate) client: CircleContractClient<'a>,
+    pub(crate) rep: reputation::ReputationContractClient<'a>,
+    pub(crate) token: TokenClient<'a>,
+    pub(crate) members: [Address; 3],
 }
 
 /// Registers reputation + circle + a SAC token, wires the reporter, funds
 /// three members with 1_000 units each.
-fn setup<'a>() -> Fixture<'a> {
+pub(crate) fn setup<'a>() -> Fixture<'a> {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
@@ -57,7 +57,7 @@ fn setup<'a>() -> Fixture<'a> {
     }
 }
 
-fn create_full_circle(f: &Fixture) -> u32 {
+pub(crate) fn create_full_circle(f: &Fixture) -> u32 {
     let [a, b, c] = &f.members;
     let id = f
         .client
@@ -67,7 +67,7 @@ fn create_full_circle(f: &Fixture) -> u32 {
     id
 }
 
-fn advance_past_deadline(f: &Fixture, id: u32) {
+pub(crate) fn advance_past_deadline(f: &Fixture, id: u32) {
     let deadline = f.client.cycle_deadline(&id);
     f.env.ledger().with_mut(|l| l.timestamp = deadline + 1);
 }
