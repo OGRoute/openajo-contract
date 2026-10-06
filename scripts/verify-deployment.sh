@@ -2,7 +2,7 @@
 # Verify that the contracts deployed on-chain are the code in this tree.
 #
 # deploy.sh uploads the unoptimized release build, so the deployed wasm should
-# be byte-identical to `cargo build --target wasm32v1-none --release` output.
+# be byte-identical to what `stellar contract build` produces from this tree.
 # Anyone can run this: it only reads the network.
 #
 # Usage: ./scripts/verify-deployment.sh
@@ -13,8 +13,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 NET="${STELLAR_NETWORK:-testnet}"
-CIRCLE_ID="${CIRCLE_CONTRACT_ID:-CCLVOHGHDH32GWFAMCEMVHLNJSF6ENVHERYWU2OHUYWWLAOKLVR3HGKS}"
-REP_ID="${REPUTATION_CONTRACT_ID:-CDXPH2PYUTRW7GV57X6CJH3E3JOPROSC23NXPMAXOO3EOBI5UTCB2GTQ}"
+CIRCLE_ID="${CIRCLE_CONTRACT_ID:-CA6NVGUC5LOZPOR3B266YXCA2TKXF4SH3362S4HRS5RQU53IDIM5F7FU}"
+REP_ID="${REPUTATION_CONTRACT_ID:-CD465NGKMGF2E6RGGL5DDMG3RZZFDINUR755FH3XRUZLMSQHTEBJWFD6}"
 
 command -v stellar >/dev/null || {
   echo "stellar CLI not found: https://developers.stellar.org/docs/tools/developer-tools/cli" >&2
@@ -25,7 +25,8 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 echo "[1/2] building release wasm"
-cargo build --target wasm32v1-none --release >/dev/null
+# soroban-sdk 28 builds contracts through the CLI, not plain `cargo build`.
+stellar contract build >/dev/null
 
 echo "[2/2] comparing against $NET"
 status=0
