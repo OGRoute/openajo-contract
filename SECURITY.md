@@ -26,27 +26,25 @@ any RustSec vulnerability. Two unmaintained-crate warnings (`derivative`,
 `paste`) do not fail it: both arrive through `soroban-sdk` and nothing here can
 drop them.
 
-GitHub's advisory database also reports two advisories against crates in
-`Cargo.lock` that RustSec does not carry. Neither reaches the deployed wasm, and
-both are fixed only in `soroban-sdk` 23 or later — a major upgrade that requires
-redeploying to new contract ids:
-
-| Advisory | Where it lives | Effect on the deployed contracts |
-| --- | --- | --- |
-| `stellar-xdr` ≤ 25.0.0 — `StringM::from_str` bypasses max-length validation (medium) | reachable only via `soroban-sdk-macros`, a **proc-macro** | None. Proc-macros run on the build host and are not linked into the guest wasm. The macro parses this repository's own source, not untrusted input. |
-| `soroban-env-host` < 26.0.0 — muxed address/`ScVal` conversions may break after a failed conversion (low) | not in the `wasm32v1-none` build graph at all | None. The host is the environment the contract runs *inside*; it reaches `Cargo.lock` through `testutils` for the test harness only. |
-
-Confirm either claim yourself:
+GitHub's advisory database is wider than RustSec's and sometimes flags crates in
+`Cargo.lock` that `cargo audit` says nothing about. When that happens, the first
+question is whether the crate reaches the **deployed wasm** at all — much of
+`Cargo.lock` is the test harness and build-time macros, which never ship:
 
 ```bash
-cargo tree --target wasm32v1-none -i soroban-env-host   # nothing to print
-cargo tree --target wasm32v1-none -i stellar-xdr        # only via soroban-sdk-macros (proc-macro)
+cargo tree --target wasm32v1-none -i <crate>   # nothing to print = not in the contract
 ```
 
-A `soroban-sdk` major upgrade is tracked as a maintainer decision rather than a
-routine bump, because it means redeploying and changing the contract ids every
-other repository points at. Dependabot is configured not to open it
-automatically.
+A crate reachable only through `soroban-sdk-macros` is a proc-macro dependency:
+it runs on the build host and is not linked into the guest wasm. A crate like
+`soroban-env-host` is the environment the contract runs *inside*, pulled in by
+`testutils` for tests. Neither can affect a deployed contract, though both still
+matter for anyone running the tests or the build.
+
+Advisories that are only fixed in a newer `soroban-sdk` major are a maintainer
+decision, not a routine bump: a major upgrade means rebuilding, redeploying to
+new contract ids, and updating every repository and document that points at
+them. Dependabot is configured not to open those automatically.
 
 ## Status
 
