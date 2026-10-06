@@ -10,6 +10,9 @@ rustup target add wasm32v1-none
 cargo test
 ```
 
+Building the wasm needs the **`stellar` CLI v25.2.0+** as well: soroban-sdk 28
+refuses to build a contract through plain `cargo build`.
+
 If `cargo test` fails compiling `soroban-env-host` with an `ed25519-dalek`
 trait error, pin it and commit the lockfile:
 
@@ -23,7 +26,7 @@ cargo update -p ed25519-dalek@3.0.0 --precise 2.2.0
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo test
-cargo build --target wasm32v1-none --release
+stellar contract build
 ```
 
 All four must pass — CI enforces them.

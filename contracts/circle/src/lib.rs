@@ -66,7 +66,7 @@ impl CircleContract {
         if deposit > 0 {
             token::Client::new(&env, &token).transfer(
                 &creator,
-                &env.current_contract_address(),
+                env.current_contract_address(),
                 &deposit,
             );
         }
@@ -119,7 +119,7 @@ impl CircleContract {
         if circle.deposit > 0 {
             token::Client::new(&env, &circle.token).transfer(
                 &member,
-                &env.current_contract_address(),
+                env.current_contract_address(),
                 &circle.deposit,
             );
         }
@@ -221,7 +221,7 @@ impl CircleContract {
         }
         token::Client::new(&env, &circle.token).transfer(
             &member,
-            &env.current_contract_address(),
+            env.current_contract_address(),
             &circle.contribution,
         );
         env.storage().temporary().set(&key, &true);

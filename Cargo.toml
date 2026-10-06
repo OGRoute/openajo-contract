@@ -3,7 +3,7 @@ resolver = "2"
 members = ["contracts/reputation", "contracts/circle"]
 
 [workspace.dependencies]
-soroban-sdk = "22"
+soroban-sdk = "28"
 
 [profile.release]
 opt-level = "z"
