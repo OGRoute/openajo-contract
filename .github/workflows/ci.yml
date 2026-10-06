@@ -71,3 +71,35 @@ jobs:
       # keeps an accidental `S...` secret out of history.
       - name: Scan full history
         run: gitleaks git --redact --verbose --exit-code 1 .
+
+  advisories:
+    name: Cargo advisories
+    runs-on: ubuntu-latest
+    env:
+      CARGO_AUDIT_VERSION: "0.22.2"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-audit-${{ env.CARGO_AUDIT_VERSION }}
+
+      - name: Install cargo-audit
+        run: |
+          command -v cargo-audit >/dev/null \
+            || cargo install cargo-audit --locked --version "$CARGO_AUDIT_VERSION"
+          cargo audit --version
+
+      # Fails the build on a RustSec vulnerability. Unmaintained-crate
+      # warnings (derivative, paste — both pulled in by soroban-sdk) do not:
+      # nothing can be done about them until the SDK drops them.
+      - name: Audit Cargo.lock
+        run: cargo audit
