@@ -51,6 +51,23 @@ reputation   117d37f0a95925ef2405444858301016a5ffafe47266b6209a5b34f4e83c133d
 The earlier soroban-sdk 22 deployment (`CCLVOHGH…` / `CDXPH2PY…`) is retired. It
 still exists on testnet, but nothing in this project points at it any more.
 
+### Verify the deployment yourself
+
+`deploy.sh` uploads the unoptimized release build, so the deployed wasm is
+byte-identical to what this tree builds. Check it without trusting us:
+
+```bash
+./scripts/verify-deployment.sh
+#   circle: MATCH   e3fad637e375f1dd…  CA6NVGUC…
+#   reputation: MATCH   117d37f0a95925ef…  CD465NGK…
+```
+
+It only reads the network — no keys, no funds. A mismatch is expected on a
+branch that changes contract code, since the deployed ids still run the
+previously deployed build. Stellar testnet is also reset periodically, which
+wipes the contracts until they are redeployed; the same workflow is available
+manually under **Actions → Verify deployment**.
+
 ## Quick start
 
 ```bash

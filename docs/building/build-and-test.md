@@ -22,11 +22,20 @@ cd openajo-contract
 cargo test
 ```
 
-19 tests across the two contracts. They run against Soroban's test host, not a
+30 tests across the two contracts. They run against Soroban's test host, not a
 real network, so they are fast and need no deployment. Every test that touches
 funds asserts **exact** balances — for example
 `insufficient_deposit_marks_default_and_skips_rotation` checks each member's and
 the contract's balance to the token unit after a default.
+
+They are organised by what they protect:
+
+| Module | What it covers |
+| --- | --- |
+| `circle::test` | the lifecycle, slashing, defaults, refunds and every error path |
+| `circle::test_invariants` | value conservation and escrow composition after **every** state change |
+| `circle::test_reputation` | reputation accumulating across circles, through the real contracts |
+| `reputation::test` | reporter authorization, and that revocation never rewrites history |
 
 ## Build the wasm
 
