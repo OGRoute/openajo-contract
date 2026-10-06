@@ -1,7 +1,18 @@
-use soroban_sdk::{symbol_short, Address, Env};
+#![allow(deprecated)]
+//! Event emitters.
+//!
+//! Event shapes are the API contract for the app repo's indexer: topics are
+//! `(symbol "circle", symbol "<action>")` and the data is a tuple. Do not
+//! change topics or data tuples without coordinating there.
+//!
+//! soroban-sdk 28 deprecates `Events::publish` in favour of the
+//! `#[contractevent]` macro, which emits a different wire format — the event
+//! name becomes the first topic and the data becomes a struct. Adopting it is a
+//! breaking change for every consumer, so it ships as its own coordinated
+//! change (openajo-contract#12 / openajo-app#22) rather than riding along with
+//! an SDK bump. The deprecated call is deliberate until then.
 
-// Event shapes are the API contract for the app repo's indexer.
-// Do not change topics or data tuples without coordinating there.
+use soroban_sdk::{symbol_short, Address, Env};
 
 pub fn create(env: &Env, id: u32, creator: &Address) {
     env.events().publish(

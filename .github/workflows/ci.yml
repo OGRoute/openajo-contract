@@ -16,6 +16,10 @@ jobs:
   contracts:
     name: Test, lint, wasm build
     runs-on: ubuntu-latest
+    env:
+      # soroban-sdk 28 refuses to build a contract through plain `cargo build`;
+      # it requires stellar-cli 25.2.0 or newer.
+      STELLAR_CLI_VERSION: 28.1.0
     steps:
       - uses: actions/checkout@v7
 
@@ -43,8 +47,14 @@ jobs:
       - name: Tests
         run: cargo test
 
+      - name: Install stellar CLI
+        run: |
+          curl -sSfL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin stellar
+          stellar --version
+
       - name: Wasm release build
-        run: cargo build --target wasm32v1-none --release
+        run: stellar contract build
 
       - name: Artifacts exist
         run: |

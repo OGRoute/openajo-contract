@@ -34,22 +34,34 @@ trusted operator is required to keep circles moving.
 ## Deployed (Stellar testnet)
 
 ```
-CIRCLE_CONTRACT_ID     = CCLVOHGHDH32GWFAMCEMVHLNJSF6ENVHERYWU2OHUYWWLAOKLVR3HGKS
-REPUTATION_CONTRACT_ID = CDXPH2PYUTRW7GV57X6CJH3E3JOPROSC23NXPMAXOO3EOBI5UTCB2GTQ
+CIRCLE_CONTRACT_ID     = CA6NVGUC5LOZPOR3B266YXCA2TKXF4SH3362S4HRS5RQU53IDIM5F7FU
+REPUTATION_CONTRACT_ID = CD465NGKMGF2E6RGGL5DDMG3RZZFDINUR755FH3XRUZLMSQHTEBJWFD6
 ```
 
-Explorer: <https://stellar.expert/explorer/testnet/contract/CCLVOHGHDH32GWFAMCEMVHLNJSF6ENVHERYWU2OHUYWWLAOKLVR3HGKS>
+Explorer: <https://stellar.expert/explorer/testnet/contract/CA6NVGUC5LOZPOR3B266YXCA2TKXF4SH3362S4HRS5RQU53IDIM5F7FU>
+
+Deployed 2026-10-06 from soroban-sdk 28. The sha256 of each deployed wasm, which
+`stellar contract build` reproduces from this tree:
+
+```
+circle       e3fad637e375f1ddb3360bee239d3a61ce23e8d22a46daf1e592f73f7fb1efd6
+reputation   117d37f0a95925ef2405444858301016a5ffafe47266b6209a5b34f4e83c133d
+```
+
+The earlier soroban-sdk 22 deployment (`CCLVOHGH…` / `CDXPH2PY…`) is retired. It
+still exists on testnet, but nothing in this project points at it any more.
 
 ## Quick start
 
 ```bash
 rustup target add wasm32v1-none
 cargo test                                        # 19 tests
-cargo build --target wasm32v1-none --release      # wasm artifacts
+stellar contract build                            # wasm artifacts
 ./scripts/deploy.sh                               # deploy + wire to testnet
 ```
 
-Requires Rust stable and the `stellar` CLI v27+ for deployment.
+Requires Rust stable and the `stellar` CLI v25.2.0+ — soroban-sdk 28 builds
+contracts through the CLI rather than plain `cargo build`.
 
 ## Application layer
 
