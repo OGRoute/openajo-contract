@@ -15,7 +15,8 @@ ADMIN=$(stellar keys address "$IDENT")
 echo "      admin: $ADMIN"
 
 echo "[2/5] build wasm"
-cargo build --target wasm32v1-none --release
+# soroban-sdk 28 requires building through the CLI (25.2.0+), not `cargo build`.
+stellar contract build
 
 echo "[3/5] deploy reputation"
 REP_ID=$(stellar contract deploy \

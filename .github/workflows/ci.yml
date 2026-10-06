@@ -16,6 +16,10 @@ jobs:
   contracts:
     name: Test, lint, wasm build
     runs-on: ubuntu-latest
+    env:
+      # soroban-sdk 28 refuses to build a contract through plain `cargo build`;
+      # it requires stellar-cli 25.2.0 or newer.
+      STELLAR_CLI_VERSION: 28.1.0
     steps:
       - uses: actions/checkout@v7
 
@@ -43,8 +47,14 @@ jobs:
       - name: Tests
         run: cargo test
 
+      - name: Install stellar CLI
+        run: |
+          curl -sSfL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin stellar
+          stellar --version
+
       - name: Wasm release build
-        run: cargo build --target wasm32v1-none --release
+        run: stellar contract build
 
       - name: Artifacts exist
         run: |
@@ -71,3 +81,35 @@ jobs:
       # keeps an accidental `S...` secret out of history.
       - name: Scan full history
         run: gitleaks git --redact --verbose --exit-code 1 .
+
+  advisories:
+    name: Cargo advisories
+    runs-on: ubuntu-latest
+    env:
+      CARGO_AUDIT_VERSION: "0.22.2"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-audit-${{ env.CARGO_AUDIT_VERSION }}
+
+      - name: Install cargo-audit
+        run: |
+          command -v cargo-audit >/dev/null \
+            || cargo install cargo-audit --locked --version "$CARGO_AUDIT_VERSION"
+          cargo audit --version
+
+      # Fails the build on a RustSec vulnerability. Unmaintained-crate
+      # warnings (derivative, paste — both pulled in by soroban-sdk) do not:
+      # nothing can be done about them until the SDK drops them.
+      - name: Audit Cargo.lock
+        run: cargo audit

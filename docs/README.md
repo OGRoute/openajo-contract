@@ -33,12 +33,12 @@ was added to its reporter allow-list at deploy time.
 ## Deployed on Stellar testnet
 
 ```
-circle       CCLVOHGHDH32GWFAMCEMVHLNJSF6ENVHERYWU2OHUYWWLAOKLVR3HGKS
-reputation   CDXPH2PYUTRW7GV57X6CJH3E3JOPROSC23NXPMAXOO3EOBI5UTCB2GTQ
+circle       CA6NVGUC5LOZPOR3B266YXCA2TKXF4SH3362S4HRS5RQU53IDIM5F7FU
+reputation   CD465NGKMGF2E6RGGL5DDMG3RZZFDINUR755FH3XRUZLMSQHTEBJWFD6
 ```
 
-* [`circle` on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CCLVOHGHDH32GWFAMCEMVHLNJSF6ENVHERYWU2OHUYWWLAOKLVR3HGKS)
-* [`reputation` on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CDXPH2PYUTRW7GV57X6CJH3E3JOPROSC23NXPMAXOO3EOBI5UTCB2GTQ)
+* [`circle` on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CA6NVGUC5LOZPOR3B266YXCA2TKXF4SH3362S4HRS5RQU53IDIM5F7FU)
+* [`reputation` on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CD465NGKMGF2E6RGGL5DDMG3RZZFDINUR755FH3XRUZLMSQHTEBJWFD6)
 
 ## The idea worth understanding first
 

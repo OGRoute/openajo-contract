@@ -3,7 +3,7 @@
 ## Prerequisites
 
 * **Rust** (stable) with the `wasm32v1-none` target
-* **Stellar CLI** (`stellar`), for deploying
+* **Stellar CLI** (`stellar`) **v25.2.0 or newer**, for building and deploying
 
 The `wasm32v1-none` target is pinned in `rust-toolchain.toml`, so `rustup`
 installs it automatically when you build inside the repo:
@@ -40,11 +40,23 @@ They are organised by what they protect:
 ## Build the wasm
 
 ```bash
-cargo build --target wasm32v1-none --release
+stellar contract build
 ```
 
 Outputs `target/wasm32v1-none/release/circle.wasm` and `reputation.wasm`, ready to
 deploy.
+
+soroban-sdk 28 builds contracts **through the CLI**, not through `cargo build`.
+Its build script stops a plain `cargo build --target wasm32v1-none` with:
+
+```
+error: soroban-sdk requires stellar-cli v25.2.0+ to build a contract
+```
+
+`stellar contract build` wraps the same cargo invocation and sets what the SDK
+needs, then prints the exported function list — a quick check that the contract
+surface is what you expect. `cargo test`, `clippy` and `fmt` are unaffected and
+still run directly.
 
 ## Two toolchain traps
 
@@ -62,9 +74,8 @@ reference-types not enabled
 
 Current Rust emits post-MVP WebAssembly features (reference types, and others) on
 `wasm32-unknown-unknown` that the Soroban VM rejects. `wasm32v1-none` targets the
-exact wasm subset Soroban accepts. The repo pins it so a plain `cargo build`
-inside the project is correct — you only hit this if you override the target by
-hand.
+exact wasm subset Soroban accepts. The repo pins it, and `stellar contract build`
+uses it, so you only hit this if you override the target by hand.
 
 ### `ed25519-dalek` version conflict
 
@@ -91,7 +102,7 @@ Every pull request runs, as one job named **Test, lint, wasm build**:
 cargo fmt --all --check
 cargo clippy --all-targets -- -D warnings
 cargo test
-cargo build --target wasm32v1-none --release
+stellar contract build
 ```
 
 `-D warnings` means clippy warnings fail the build. Run the same four locally
