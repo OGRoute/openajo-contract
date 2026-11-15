@@ -58,6 +58,7 @@ impl CircleContract {
         period_secs: u64,
     ) -> u32 {
         creator.require_auth();
+        read_config(&env);
         if contribution <= 0 || deposit < 0 || size < 2 || period_secs < 3600 {
             panic_with_error!(&env, Error::BadParams);
         }
