@@ -2829,3 +2829,15 @@ fn has_paid_correct_across_multiple_cycles() {
     assert!(f.client.has_paid(&id, a));
     assert!(!f.client.has_paid(&id, b));
 }
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn create_circle_before_initialize_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let circle_id = env.register(CircleContract, ());
+    let client = CircleContractClient::new(&env, &circle_id);
+    let admin = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    client.create_circle(&admin, &sac.address(), &CONTRIB, &DEPOSIT, &3, &PERIOD);
+}
