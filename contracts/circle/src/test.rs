@@ -315,3 +315,15 @@ fn join_full_circle_panics() {
     let d = Address::generate(&f.env);
     f.client.join(&id, &d);
 }
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn create_circle_before_initialize_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let circle_id = env.register(CircleContract, ());
+    let client = CircleContractClient::new(&env, &circle_id);
+    let admin = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    client.create_circle(&admin, &sac.address(), &CONTRIB, &DEPOSIT, &3, &PERIOD);
+}
