@@ -4,10 +4,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # Hold new releases for a week: hijacked versions are usually
-    # caught and pulled within days. Security updates are not delayed.
-    cooldown:
-      default-days: 7
     open-pull-requests-limit: 5
     ignore:
       # soroban-sdk majors track protocol upgrades and need a redeploy plan.
@@ -18,7 +14,3 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # Hold new releases for a week: hijacked versions are usually
-    # caught and pulled within days. Security updates are not delayed.
-    cooldown:
-      default-days: 7
