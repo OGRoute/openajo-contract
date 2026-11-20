@@ -71,6 +71,18 @@ linked page before touching either.
   would reintroduce the problem the protocol exists to solve. →
   [Settlement](design/settlement.md)
 
+## Changelog
+
+Update `CHANGELOG.md` (Keep a Changelog format) in the same PR as your change:
+
+- Add an entry under `[Unreleased]` describing what changed and why.
+- Bump the crate version in `contracts/*/Cargo.toml` only for an **interface
+  change** (function signatures, storage layout, error codes, events,
+  authorization rules). Internal changes, dependency upgrades and redeployments
+  that ship the same interface do not bump the version — record them without a
+  version bump.
+- Keep `circle` and `reputation` versions in sync; they deploy together.
+
 ## Security
 
 Do not open a public issue for a vulnerability. Use GitHub's private vulnerability
