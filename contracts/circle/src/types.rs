@@ -56,10 +56,33 @@ pub struct Circle {
     pub current_cycle: u32,
 }
 
+/// Arguments to `create_circle` other than the creator. Same rules as the
+/// matching [`Circle`] fields; new circle settings are added here.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CircleParams {
+    pub token: Address,
+    pub contribution: i128,
+    pub deposit: i128,
+    pub size: u32,
+    pub period_secs: u64,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MemberState {
     pub deposit_remaining: i128,
     pub received: bool,
     pub defaulted: bool,
+}
+
+impl MemberState {
+    /// State of a member who has just joined with `deposit` escrowed.
+    pub fn new(deposit: i128) -> Self {
+        Self {
+            deposit_remaining: deposit,
+            received: false,
+            defaulted: false,
+        }
+    }
 }

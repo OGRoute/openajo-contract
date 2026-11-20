@@ -20,6 +20,11 @@ jobs:
       # soroban-sdk 28 refuses to build a contract through plain `cargo build`;
       # it requires stellar-cli 25.2.0 or newer.
       STELLAR_CLI_VERSION: 28.1.0
+      # Wasm size budgets in bytes, for the unoptimized `stellar contract
+      # build` output (the same build that gets deployed). See
+      # docs/building/build-and-test.md before raising one.
+      CIRCLE_WASM_BUDGET: "16384"
+      REPUTATION_WASM_BUDGET: "4096"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -61,6 +66,31 @@ jobs:
         run: |
           test -f target/wasm32v1-none/release/reputation.wasm
           test -f target/wasm32v1-none/release/circle.wasm
+
+      - name: Wasm size budget
+        run: |
+          status=0
+          {
+            echo "### Wasm sizes"
+            echo
+            echo "| Contract | Size (bytes) | Budget (bytes) | Status |"
+            echo "| --- | ---: | ---: | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          check() {
+            local name=$1 budget=$2 size result
+            size=$(stat -c %s "target/wasm32v1-none/release/${name}.wasm")
+            if [ "$size" -le "$budget" ]; then
+              result="ok"
+            else
+              result="OVER BUDGET"
+              status=1
+              echo "::error::${name}.wasm is ${size} bytes, over its budget of ${budget}"
+            fi
+            echo "| ${name} | ${size} | ${budget} | ${result} |" >> "$GITHUB_STEP_SUMMARY"
+          }
+          check circle "$CIRCLE_WASM_BUDGET"
+          check reputation "$REPUTATION_WASM_BUDGET"
+          exit "$status"
 
   secrets:
     name: Secret scan

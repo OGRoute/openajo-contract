@@ -17,7 +17,7 @@ use errors::Error;
 use soroban_sdk::{
     contract, contractclient, contractimpl, panic_with_error, token, vec, Address, Env, Vec,
 };
-use types::{Circle, CircleStatus, DataKey, GlobalConfig, MemberState};
+use types::{Circle, CircleParams, CircleStatus, DataKey, GlobalConfig, MemberState};
 
 /// ~15 days / ~30 days at 5s ledgers.
 const TTL_THRESHOLD: u32 = 259_200;
@@ -48,15 +48,14 @@ impl CircleContract {
     }
 
     /// Creator only: open a new circle and escrow the creator's deposit.
-    pub fn create_circle(
-        env: Env,
-        creator: Address,
-        token: Address,
-        contribution: i128,
-        deposit: i128,
-        size: u32,
-        period_secs: u64,
-    ) -> u32 {
+    pub fn create_circle(env: Env, creator: Address, params: CircleParams) -> u32 {
+        let CircleParams {
+            token,
+            contribution,
+            deposit,
+            size,
+            period_secs,
+        } = params;
         creator.require_auth();
         if contribution <= 0 || deposit < 0 || size < 2 || period_secs < 3600 {
             panic_with_error!(&env, Error::BadParams);
@@ -84,16 +83,7 @@ impl CircleContract {
         };
         write_circle(&env, id, &circle);
         write_members(&env, id, &vec![&env, creator.clone()]);
-        write_member(
-            &env,
-            id,
-            &creator,
-            &MemberState {
-                deposit_remaining: deposit,
-                received: false,
-                defaulted: false,
-            },
-        );
+        write_member(&env, id, &creator, &MemberState::new(deposit));
         env.storage().instance().set(&DataKey::Count, &(id + 1));
         extend_instance(&env);
         events::create(&env, id, &creator);
@@ -125,16 +115,7 @@ impl CircleContract {
         }
         members.push_back(member.clone());
         write_members(&env, circle_id, &members);
-        write_member(
-            &env,
-            circle_id,
-            &member,
-            &MemberState {
-                deposit_remaining: circle.deposit,
-                received: false,
-                defaulted: false,
-            },
-        );
+        write_member(&env, circle_id, &member, &MemberState::new(circle.deposit));
         events::join(&env, circle_id, &member);
 
         if members.len() == circle.size {
