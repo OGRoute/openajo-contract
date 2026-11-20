@@ -48,11 +48,25 @@ jobs:
       - name: Tests
         run: cargo test
 
+      - name: Cache stellar CLI
+        id: stellar-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.local/bin/stellar
+          key: ${{ runner.os }}-stellar-cli-${{ env.STELLAR_CLI_VERSION }}
+
       - name: Install stellar CLI
+        if: steps.stellar-cache.outputs.cache-hit != 'true'
         run: |
+          mkdir -p "$HOME/.local/bin"
           curl -sSfL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
-            | tar -xz -C /usr/local/bin stellar
-          stellar --version
+            | tar -xz -C "$HOME/.local/bin" stellar
+
+      - name: Add stellar CLI to PATH
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          chmod +x "$HOME/.local/bin/stellar"
+          "$HOME/.local/bin/stellar" --version
 
       - name: Wasm release build
         run: stellar contract build
@@ -61,6 +75,27 @@ jobs:
         run: |
           test -f target/wasm32v1-none/release/reputation.wasm
           test -f target/wasm32v1-none/release/circle.wasm
+
+      # Generates the TypeScript client for each contract from the built wasm
+      # so interface drift against the app repo is visible on every build.
+      - name: Generate TypeScript bindings
+        run: |
+          for c in reputation circle; do
+            stellar contract bindings typescript \
+              --wasm "target/wasm32v1-none/release/${c}.wasm" \
+              --output-dir "bindings/${c}" \
+              --overwrite
+          done
+
+      - name: Upload TypeScript bindings
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: typescript-bindings
+          path: |
+            bindings
+            !bindings/**/node_modules
+          if-no-files-found: error
 
   secrets:
     name: Secret scan

@@ -308,6 +308,98 @@ fn create_bad_params_panics() {
 }
 
 #[test]
+fn zero_deposit_create_and_join_need_no_balance() {
+    let f = setup();
+    let a = Address::generate(&f.env);
+    let b = Address::generate(&f.env);
+    let id = f
+        .client
+        .create_circle(&a, &f.token.address, &CONTRIB, &0, &2, &PERIOD);
+    f.client.join(&id, &b);
+    assert_eq!(f.token.balance(&a), 0);
+    assert_eq!(f.token.balance(&b), 0);
+    assert_eq!(f.token.balance(&f.client.address), 0);
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Active);
+}
+
+#[test]
+#[should_panic]
+fn create_zero_contribution_panics() {
+    let f = setup();
+    let a = &f.members[0];
+    f.client
+        .create_circle(a, &f.token.address, &0, &DEPOSIT, &3, &PERIOD);
+}
+
+#[test]
+#[should_panic]
+fn create_negative_deposit_panics() {
+    let f = setup();
+    let a = &f.members[0];
+    f.client
+        .create_circle(a, &f.token.address, &CONTRIB, &-1, &3, &PERIOD);
+}
+
+#[test]
+#[should_panic]
+fn create_size_one_panics() {
+    let f = setup();
+    let a = &f.members[0];
+    f.client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &1, &PERIOD);
+}
+
+#[test]
+#[should_panic]
+fn create_short_period_panics() {
+    let f = setup();
+    let a = &f.members[0];
+    f.client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &3599);
+}
+
+#[test]
+fn create_min_contribution_accepted() {
+    let f = setup();
+    let a = &f.members[0];
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &1, &DEPOSIT, &3, &PERIOD);
+    assert_eq!(f.client.get_circle(&id).contribution, 1);
+}
+
+#[test]
+fn create_zero_deposit_accepted() {
+    let f = setup();
+    let a = &f.members[0];
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &0, &3, &PERIOD);
+    assert_eq!(f.client.get_circle(&id).deposit, 0);
+    assert_eq!(f.token.balance(a), 1_000);
+}
+
+#[test]
+fn create_min_size_accepted() {
+    let f = setup();
+    let a = &f.members[0];
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &2, &PERIOD);
+    assert_eq!(f.client.get_circle(&id).size, 2);
+}
+
+#[test]
+fn create_min_period_accepted() {
+    let f = setup();
+    let a = &f.members[0];
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &3600);
+    assert_eq!(f.client.get_circle(&id).period_secs, 3600);
+}
+
+#[test]
 #[should_panic]
 fn join_full_circle_panics() {
     let f = setup();
