@@ -13,6 +13,16 @@ here without a version bump.
 
 ## [Unreleased]
 
+### Added
+
+- `circle` tests asserting the exact signer and invocation tree (`env.auths()`)
+  for `create_circle`, `join`, `leave`, `cancel` and `contribute`, and that
+  `settle_cycle` consumes no authorisation.
+- `circle` test pinning the settlement deadline boundary: `NotDue` at exactly
+  the deadline, settles at deadline + 1.
+- `circle` lifecycle tests for a minimum-size (2-member) circle and a
+  zero-deposit circle where a missed contribution defaults immediately.
+
 ## [0.1.0] - 2026-10-06
 
 ### Added
