@@ -29,7 +29,17 @@ cargo test
 stellar contract build
 ```
 
-All four must pass — CI enforces them.
+All four must pass — CI enforces them. With [`just`](https://just.systems)
+installed, `just check` runs fmt, clippy, test and the wasm build in one go
+(`just --list` shows the rest, including `just deny` for `cargo deny check
+licenses bans`).
+
+## Deploy script test
+
+`scripts/test-deploy-local.sh` runs `scripts/deploy.sh` against a local
+quickstart network and drives a 2-member circle through the CLI. It needs
+Docker and the `stellar` CLI and skips (exit 0) without them; CI runs it
+with `REQUIRE_LOCAL_NETWORK=1` on PRs touching `scripts/` or `contracts/`.
 
 ## Rules of the codebase
 
