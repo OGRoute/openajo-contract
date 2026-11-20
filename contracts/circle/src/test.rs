@@ -1,6 +1,9 @@
 #![cfg(test)]
 
-use crate::{types::CircleStatus, CircleContract, CircleContractClient};
+use crate::{
+    types::{CircleParams, CircleStatus},
+    CircleContract, CircleContractClient,
+};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::{StellarAssetClient, TokenClient},
@@ -57,11 +60,19 @@ pub(crate) fn setup<'a>() -> Fixture<'a> {
     }
 }
 
+pub(crate) fn params(token: &Address, size: u32) -> CircleParams {
+    CircleParams {
+        token: token.clone(),
+        contribution: CONTRIB,
+        deposit: DEPOSIT,
+        size,
+        period_secs: PERIOD,
+    }
+}
+
 pub(crate) fn create_full_circle(f: &Fixture) -> u32 {
     let [a, b, c] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(a, &params(&f.token.address, 3));
     f.client.join(&id, b);
     f.client.join(&id, c);
     id
@@ -207,9 +218,7 @@ fn recipient_defaults_after_receiving_loses_deposit() {
 fn leave_refunds_and_cancel_refunds_all() {
     let f = setup();
     let [a, b, c] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(a, &params(&f.token.address, 3));
     f.client.join(&id, b);
 
     f.client.leave(&id, b);
@@ -231,9 +240,7 @@ fn leave_refunds_and_cancel_refunds_all() {
 fn double_join_panics() {
     let f = setup();
     let [a, b, _] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(a, &params(&f.token.address, 3));
     f.client.join(&id, b);
     f.client.join(&id, b);
 }
@@ -279,9 +286,7 @@ fn settle_before_due_panics() {
 fn non_creator_cancel_panics() {
     let f = setup();
     let [a, b, _] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(a, &params(&f.token.address, 3));
     f.client.join(&id, b);
     f.client.cancel(&id, b);
 }
@@ -291,9 +296,7 @@ fn non_creator_cancel_panics() {
 fn creator_leave_panics() {
     let f = setup();
     let a = &f.members[0];
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(a, &params(&f.token.address, 3));
     f.client.leave(&id, a);
 }
 
@@ -303,8 +306,7 @@ fn create_bad_params_panics() {
     let f = setup();
     let a = &f.members[0];
     // size 1 is invalid.
-    f.client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &1, &PERIOD);
+    f.client.create_circle(a, &params(&f.token.address, 1));
 }
 
 #[test]
@@ -314,4 +316,12 @@ fn join_full_circle_panics() {
     let id = create_full_circle(&f); // Active now, so join is BadStatus
     let d = Address::generate(&f.env);
     f.client.join(&id, &d);
+}
+
+#[test]
+fn member_state_new_starts_clean() {
+    let s = crate::types::MemberState::new(DEPOSIT);
+    assert_eq!(s.deposit_remaining, DEPOSIT);
+    assert!(!s.received);
+    assert!(!s.defaulted);
 }
