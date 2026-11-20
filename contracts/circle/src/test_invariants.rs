@@ -12,8 +12,8 @@
 //!    deposits â€” every contribution collected has been paid out as the pot.
 //! 3. A terminal circle (completed or cancelled) leaves the contract empty.
 
-use crate::test_utils::{
-    advance_past_deadline, create_full_circle, setup, Fixture, CONTRIB, DEPOSIT, PERIOD,
+use crate::test::{
+    advance_past_deadline, create_full_circle, params, setup, Fixture, CONTRIB, DEPOSIT,
 };
 
 /// Total tokens held by the three members in the fixture.

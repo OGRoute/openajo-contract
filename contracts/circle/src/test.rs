@@ -1,11 +1,8 @@
 #![cfg(test)]
 
-extern crate std;
-
 use crate::{
-    errors::Error,
-    types::{CircleStatus, MemberState},
-    CircleContract, CircleContractClient, MIN_PERIOD_SECS,
+    types::{CircleParams, CircleStatus},
+    CircleContract, CircleContractClient,
 };
 use soroban_sdk::{
     symbol_short,
@@ -61,6 +58,16 @@ pub(crate) fn setup<'a>() -> Fixture<'a> {
         rep,
         token,
         members,
+    }
+}
+
+pub(crate) fn params(token: &Address, size: u32) -> CircleParams {
+    CircleParams {
+        token: token.clone(),
+        contribution: CONTRIB,
+        deposit: DEPOSIT,
+        size,
+        period_secs: PERIOD,
     }
 }
 
