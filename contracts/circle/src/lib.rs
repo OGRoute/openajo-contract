@@ -458,3 +458,5 @@ mod test;
 mod test_invariants;
 
 mod test_reputation;
+
+mod test_cost;

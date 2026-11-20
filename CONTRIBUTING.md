@@ -34,6 +34,20 @@ installed, `just check` runs fmt, clippy, test and the wasm build in one go
 (`just --list` shows the rest, including `just deny` for `cargo deny check
 licenses bans`).
 
+## Resource cost baseline
+
+`contracts/circle/src/test_cost.rs` runs each entry point at a fixed size (a
+three member circle) and compares the CPU instructions and memory the host
+metered with `contracts/circle/cost_baseline.txt`. `cargo test` fails when a call
+costs more than 10% over its baseline. After an intended change, regenerate the
+baseline and commit it with the change:
+
+```bash
+UPDATE_COST_BASELINE=1 cargo test -p circle cost_baseline
+```
+
+Review the diff of the baseline file: a large rise is worth a note in the PR.
+
 ## Deploy script test
 
 `scripts/test-deploy-local.sh` runs `scripts/deploy.sh` against a local
