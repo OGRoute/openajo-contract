@@ -2,6 +2,10 @@
 
 * [Introduction](README.md)
 
+## 🏗️ Architecture
+
+* [Architecture & interactions](architecture.md)
+
 ## 🧠 Design
 
 * [The circle lifecycle](design/lifecycle.md)
