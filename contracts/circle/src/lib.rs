@@ -455,6 +455,9 @@ fn is_paid(env: &Env, id: u32, cycle: u32, member: &Address) -> bool {
 
 mod test;
 
+#[cfg(test)]
+mod test_utils;
+
 mod test_invariants;
 
 mod test_reputation;
