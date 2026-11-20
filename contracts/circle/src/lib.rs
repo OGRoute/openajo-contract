@@ -22,7 +22,7 @@ use soroban_sdk::{
     contract, contractclient, contractimpl, panic_with_error, token, vec, Address, Env, String, Vec,
 };
 use ttl_helpers::{extend_instance, extend_persistent};
-use types::{Circle, CircleStatus, DataKey, GlobalConfig, MemberState};
+use types::{Circle, CircleParams, CircleStatus, DataKey, GlobalConfig, MemberState};
 
 /// Maximum number of circles returned by `get_circles` per call.
 pub const MAX_PAGE_SIZE: u32 = 50;
@@ -87,16 +87,7 @@ impl CircleContract {
         size: u32,
         period_secs: u64,
     ) -> u32 {
-        create_circle_inner(
-            env,
-            creator,
-            token,
-            contribution,
-            deposit,
-            size,
-            period_secs,
-            0,
-        )
+        create_circle_inner(env, creator, token, contribution, deposit, size, period_secs, 0)
     }
 
     /// Creator only: open a new circle with a configured settlement grace period.
@@ -111,15 +102,15 @@ impl CircleContract {
         period_secs: u64,
         grace_secs: u64,
     ) -> u32 {
+        create_circle_inner(env, creator, token, contribution, deposit, size, period_secs, grace_secs)
+    }
+
+    /// Creator only: open a new circle using a [`CircleParams`] bundle.
+    pub fn create_circle_with_params(env: Env, creator: Address, params: CircleParams) -> u32 {
         create_circle_inner(
-            env,
-            creator,
-            token,
-            contribution,
-            deposit,
-            size,
-            period_secs,
-            grace_secs,
+            env, creator,
+            params.token, params.contribution, params.deposit,
+            params.size, params.period_secs, 0,
         )
     }
 
@@ -142,16 +133,7 @@ impl CircleContract {
         }
         members.push_back(member.clone());
         storage::write_members(&env, circle_id, &members);
-        storage::write_member(
-            &env,
-            circle_id,
-            &member,
-            &MemberState {
-                deposit_remaining: circle.deposit,
-                received: false,
-                defaulted: false,
-            },
-        );
+        storage::write_member(&env, circle_id, &member, &MemberState::new(circle.deposit));
         events::join(&env, circle_id, &member);
 
         if members.len() == circle.size {

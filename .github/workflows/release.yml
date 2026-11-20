@@ -1,0 +1,57 @@
+name: Release
+
+# On a `v*` tag, build the wasm exactly as scripts/verify-deployment.sh does
+# (`stellar contract build`, unoptimized) and attach the .wasm files plus a
+# SHA256SUMS file to a GitHub release. The hashes are therefore the same ones
+# verify-deployment.sh computes for the local build and for the deployed code.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and publish wasm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload assets
+    env:
+      STELLAR_CLI_VERSION: 28.1.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+          targets: wasm32v1-none
+
+      - name: Install stellar CLI
+        run: |
+          curl -sSfL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin stellar
+          stellar --version
+
+      - name: Build wasm
+        run: stellar contract build
+
+      - name: Collect artifacts and sha256
+        run: |
+          mkdir dist
+          for name in circle reputation; do
+            cp "target/wasm32v1-none/release/${name}.wasm" dist/
+          done
+          (cd dist && sha256sum *.wasm | tee SHA256SUMS)
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/*.wasm dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --generate-notes \
+            --verify-tag

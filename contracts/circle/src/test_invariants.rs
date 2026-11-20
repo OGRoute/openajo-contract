@@ -12,8 +12,8 @@
 //!    deposits — every contribution collected has been paid out as the pot.
 //! 3. A terminal circle (completed or cancelled) leaves the contract empty.
 
-use crate::test_utils::{
-    advance_past_deadline, create_full_circle, setup, Fixture, CONTRIB, DEPOSIT, PERIOD,
+use crate::test::{
+    advance_past_deadline, create_full_circle, params, setup, Fixture, CONTRIB, DEPOSIT,
 };
 
 /// Total tokens held by the three members in the fixture.
@@ -154,9 +154,7 @@ fn supply_is_conserved_through_leaving_and_cancelling() {
     let [a, b, c] = &f.members;
     let minted = circulating(&f);
 
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(a, &params(&f.token.address, 3));
     assert_conserved(&f, minted);
 
     f.client.join(&id, b);

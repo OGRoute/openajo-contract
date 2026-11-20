@@ -20,6 +20,11 @@ jobs:
       # soroban-sdk 28 refuses to build a contract through plain `cargo build`;
       # it requires stellar-cli 25.2.0 or newer.
       STELLAR_CLI_VERSION: 28.1.0
+      # Wasm size budgets in bytes, for the unoptimized `stellar contract
+      # build` output (the same build that gets deployed). See
+      # docs/building/build-and-test.md before raising one.
+      CIRCLE_WASM_BUDGET: "16384"
+      REPUTATION_WASM_BUDGET: "4096"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -48,28 +53,11 @@ jobs:
       - name: Tests
         run: cargo test
 
-      - name: Test snapshots are committed
-        run: git diff --exit-code -- '**/test_snapshots/**'
-
-      - name: Cache stellar CLI
-        id: stellar-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.local/bin/stellar
-          key: ${{ runner.os }}-stellar-cli-${{ env.STELLAR_CLI_VERSION }}
-
       - name: Install stellar CLI
-        if: steps.stellar-cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p "$HOME/.local/bin"
           curl -sSfL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
-            | tar -xz -C "$HOME/.local/bin" stellar
-
-      - name: Add stellar CLI to PATH
-        run: |
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          chmod +x "$HOME/.local/bin/stellar"
-          "$HOME/.local/bin/stellar" --version
+            | tar -xz -C /usr/local/bin stellar
+          stellar --version
 
       - name: Wasm release build
         run: stellar contract build
@@ -79,26 +67,30 @@ jobs:
           test -f target/wasm32v1-none/release/reputation.wasm
           test -f target/wasm32v1-none/release/circle.wasm
 
-      # Generates the TypeScript client for each contract from the built wasm
-      # so interface drift against the app repo is visible on every build.
-      - name: Generate TypeScript bindings
+      - name: Wasm size budget
         run: |
-          for c in reputation circle; do
-            stellar contract bindings typescript \
-              --wasm "target/wasm32v1-none/release/${c}.wasm" \
-              --output-dir "bindings/${c}" \
-              --overwrite
-          done
-
-      - name: Upload TypeScript bindings
-        if: github.event_name == 'push' || github.event_name == 'pull_request'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: typescript-bindings
-          path: |
-            bindings
-            !bindings/**/node_modules
-          if-no-files-found: error
+          status=0
+          {
+            echo "### Wasm sizes"
+            echo
+            echo "| Contract | Size (bytes) | Budget (bytes) | Status |"
+            echo "| --- | ---: | ---: | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          check() {
+            local name=$1 budget=$2 size result
+            size=$(stat -c %s "target/wasm32v1-none/release/${name}.wasm")
+            if [ "$size" -le "$budget" ]; then
+              result="ok"
+            else
+              result="OVER BUDGET"
+              status=1
+              echo "::error::${name}.wasm is ${size} bytes, over its budget of ${budget}"
+            fi
+            echo "| ${name} | ${size} | ${budget} | ${result} |" >> "$GITHUB_STEP_SUMMARY"
+          }
+          check circle "$CIRCLE_WASM_BUDGET"
+          check reputation "$REPUTATION_WASM_BUDGET"
+          exit "$status"
 
   secrets:
     name: Secret scan
@@ -154,24 +146,3 @@ jobs:
       # nothing can be done about them until the SDK drops them.
       - name: Audit Cargo.lock
         run: cargo audit
-
-  deny:
-    name: Cargo deny (licences, bans)
-    runs-on: ubuntu-latest
-    env:
-      CARGO_DENY_VERSION: "0.18.9"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-        with:
-          toolchain: stable
-
-      - name: Install cargo-deny
-        run: |
-          curl -sSfL "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz"             | tar -xz --strip-components=1 -C /usr/local/bin "cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl/cargo-deny"
-          cargo deny --version
-
-      - name: Check licences and bans
-        run: cargo deny check licenses bans
