@@ -269,6 +269,8 @@ impl CircleContract {
         //    slashes from active members who missed.
         let mut pot: i128 = 0;
         let mut payers: Vec<Address> = vec![&env];
+        let mut slashed_who: Vec<Address> = vec![&env];
+        let mut slashed_amt: Vec<i128> = vec![&env];
         for m in members.iter() {
             let mut st = read_member(&env, circle_id, &m);
             if st.defaulted {
@@ -282,6 +284,8 @@ impl CircleContract {
                 if slash > 0 {
                     st.deposit_remaining -= slash;
                     pot += slash;
+                    slashed_who.push_back(m.clone());
+                    slashed_amt.push_back(slash);
                     events::slash(&env, circle_id, &m, slash);
                 }
                 if slash < circle.contribution {
@@ -329,6 +333,16 @@ impl CircleContract {
                         }
                         if amount > 0 {
                             tok.transfer(&this, &p, &amount);
+                        }
+                    }
+                } else {
+                    // Nobody paid, so there is no one to compensate: return each
+                    // slash to the member it was taken from instead of leaving
+                    // it stranded in the contract.
+                    for (i, w) in (0_u32..).zip(slashed_who.iter()) {
+                        let amount = slashed_amt.get_unchecked(i);
+                        if amount > 0 {
+                            tok.transfer(&this, &w, &amount);
                         }
                     }
                 }
