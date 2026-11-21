@@ -1246,3 +1246,240 @@ fn concurrent_circles_with_overlapping_members_stay_isolated() {
     assert_eq!(f.rep.get_reputation(b).completed, 2);
     assert_eq!(f.rep.get_reputation(c).completed, 2);
 }
+
+// ---- Extra members --------------------------------------------------------
+
+/// A fresh address funded with 1_000 units, for scenarios needing more than
+/// the fixture's three members.
+fn funded_member(f: &Fixture) -> Address {
+    let m = Address::generate(&f.env);
+    StellarAssetClient::new(&f.env, &f.token.address).mint(&m, &1_000);
+    m
+}
+
+// ---- Partial slashes leading to default -----------------------------------
+
+#[test]
+fn partial_slash_then_default_on_second_miss_with_fractional_deposit() {
+    // The deposit is 1.5x the contribution, so it covers one miss in full and
+    // only half of the next. Uses its own amounts (not CONTRIB/DEPOSIT) and a
+    // 4-member circle so the circle is still running after the default.
+    const C: i128 = 200;
+    const D: i128 = 300; // 1.5 * C
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let d = funded_member(&f);
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &C, &D, &4, &PERIOD);
+    f.client.join(&id, b);
+    f.client.join(&id, c);
+    f.client.join(&id, &d);
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Active);
+    assert_eq!(f.token.balance(&f.client.address), 4 * D);
+
+    // Cycle 0: d misses. The full contribution is slashed (300 -> 100), so d
+    // is NOT defaulted yet and nothing is reported. a receives 3*200 + 200.
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    f.client.contribute(&id, c);
+    advance_past_deadline(&f, id);
+    f.client.settle_cycle(&id);
+
+    let st = f.client.get_member(&id, &d);
+    assert_eq!(st.deposit_remaining, D - C); // 100
+    assert!(!st.defaulted);
+    assert!(!st.received);
+    assert_eq!(f.rep.get_reputation(&d).defaulted, 0);
+    assert_eq!(f.client.get_circle(&id).slashed_total, C);
+    assert_eq!(f.client.get_circle(&id).current_cycle, 1);
+    assert_eq!(f.token.balance(a), 1_000 - D - C + 4 * C); // 1_300
+                                                           // Escrow: four deposits minus d's slash.
+    assert_eq!(f.token.balance(&f.client.address), 4 * D - C); // 1_000
+
+    // Cycle 1: d misses again. Only 100 is left, a partial slash of half the
+    // contribution, which marks the default and reports it exactly once.
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    f.client.contribute(&id, c);
+    advance_past_deadline(&f, id);
+    f.client.settle_cycle(&id);
+
+    let st = f.client.get_member(&id, &d);
+    assert_eq!(st.deposit_remaining, 0);
+    assert!(st.defaulted);
+    assert!(!st.received);
+    assert_eq!(f.rep.get_reputation(&d).defaulted, 1);
+    assert_eq!(f.client.get_circle(&id).slashed_total, D);
+    // b receives 3*200 + the 100 partial slash.
+    assert_eq!(f.token.balance(b), 1_000 - D - 2 * C + 3 * C + (D - C)); // 1_000
+                                                                         // Escrow: only a, b and c's untouched deposits remain.
+    assert_eq!(f.token.balance(&f.client.address), 3 * D); // 900
+
+    // d is skipped from here on: contributing is rejected.
+    assert_eq!(
+        f.client.try_contribute(&id, &d),
+        Err(Ok(Error::Defaulted.into()))
+    );
+
+    // Cycle 2: the three remaining members pay; c receives 600 and the
+    // circle completes without waiting for the deadline.
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    f.client.contribute(&id, c);
+    f.client.settle_cycle(&id);
+
+    let circle = f.client.get_circle(&id);
+    assert_eq!(circle.status, CircleStatus::Completed);
+    assert_eq!(circle.slashed_total, D);
+
+    // Exact balances:
+    // a: -300 -600 +800 +300 = +200
+    // b: -300 -600 +700 +300 = +100
+    // c: -300 -600 +600 +300 =    0
+    // d: -300                = -300  (the whole deposit, slashed 200 + 100)
+    assert_eq!(f.token.balance(a), 1_200);
+    assert_eq!(f.token.balance(b), 1_100);
+    assert_eq!(f.token.balance(c), 1_000);
+    assert_eq!(f.token.balance(&d), 700);
+    assert_eq!(f.token.balance(&f.client.address), 0);
+
+    // The default was recorded once (on the second miss), never a completion.
+    assert_eq!(f.rep.get_reputation(&d).defaulted, 1);
+    assert_eq!(f.rep.get_reputation(&d).completed, 0);
+    for m in [a, b, c] {
+        assert_eq!(f.rep.get_reputation(m).completed, 1);
+        assert_eq!(f.rep.get_reputation(m).defaulted, 0);
+    }
+}
+
+// ---- Leave and rejoin ordering --------------------------------------------
+
+#[test]
+fn leave_preserves_join_order_of_remaining_members() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let d = funded_member(&f);
+    let e = funded_member(&f);
+    let g = funded_member(&f);
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &5, &PERIOD);
+    f.client.join(&id, b);
+    f.client.join(&id, c);
+    f.client.join(&id, &d);
+    assert_eq!(
+        f.client.get_members(&id),
+        soroban_sdk::vec![&f.env, a.clone(), b.clone(), c.clone(), d.clone()]
+    );
+
+    // The second member leaves: the rest keep their relative order.
+    f.client.leave(&id, b);
+    assert_eq!(
+        f.client.get_members(&id),
+        soroban_sdk::vec![&f.env, a.clone(), c.clone(), d.clone()]
+    );
+    assert_eq!(f.token.balance(b), 1_000);
+
+    // Newcomers fill the circle and land at the end, in their join order.
+    f.client.join(&id, &e);
+    f.client.join(&id, &g);
+    let order = [a.clone(), c.clone(), d.clone(), e.clone(), g.clone()];
+    assert_eq!(
+        f.client.get_members(&id),
+        soroban_sdk::vec![
+            &f.env,
+            a.clone(),
+            c.clone(),
+            d.clone(),
+            e.clone(),
+            g.clone()
+        ]
+    );
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Active);
+
+    // Payouts follow that order exactly: one recipient per cycle, each
+    // receiving the full 5 * 100 pot.
+    for (cycle, recipient) in order.iter().enumerate() {
+        for m in order.iter() {
+            f.client.contribute(&id, m);
+        }
+        f.client.settle_cycle(&id);
+        let paid_so_far = (cycle as i128 + 1) * CONTRIB;
+        for (i, m) in order.iter().enumerate() {
+            assert_eq!(f.client.get_member(&id, m).received, i <= cycle);
+        }
+        if cycle < order.len() - 1 {
+            assert_eq!(
+                f.token.balance(recipient),
+                1_000 - DEPOSIT - paid_so_far + 5 * CONTRIB
+            );
+        }
+    }
+
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
+    for m in order.iter() {
+        assert_eq!(f.token.balance(m), 1_000);
+    }
+    assert_eq!(f.token.balance(b), 1_000);
+    assert_eq!(f.token.balance(&f.client.address), 0);
+}
+
+#[test]
+fn rejoin_after_leaving_starts_fresh_at_the_end() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let d = funded_member(&f);
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &4, &PERIOD);
+    f.client.join(&id, b);
+    f.client.join(&id, c);
+
+    f.client.leave(&id, b);
+    assert_eq!(f.token.balance(b), 1_000);
+    assert_eq!(
+        f.client.get_members(&id),
+        soroban_sdk::vec![&f.env, a.clone(), c.clone()]
+    );
+    // Leaving removes the member record entirely.
+    assert_eq!(
+        f.client.try_get_member(&id, b),
+        Err(Ok(Error::NotMember.into()))
+    );
+
+    // Rejoining escrows a new deposit and appends b behind c.
+    f.client.join(&id, b);
+    assert_eq!(
+        f.client.get_members(&id),
+        soroban_sdk::vec![&f.env, a.clone(), c.clone(), b.clone()]
+    );
+    let st = f.client.get_member(&id, b);
+    assert_eq!(st.deposit_remaining, DEPOSIT);
+    assert!(!st.received);
+    assert!(!st.defaulted);
+    assert_eq!(f.token.balance(b), 1_000 - DEPOSIT);
+    // Exactly one deposit per current member is escrowed.
+    assert_eq!(f.token.balance(&f.client.address), 3 * DEPOSIT);
+
+    // Fill the circle; payout order puts the rejoined member third.
+    f.client.join(&id, &d);
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Active);
+    let order = [a.clone(), c.clone(), b.clone(), d.clone()];
+    for (cycle, recipient) in order.iter().enumerate() {
+        for m in order.iter() {
+            f.client.contribute(&id, m);
+        }
+        f.client.settle_cycle(&id);
+        assert!(f.client.get_member(&id, recipient).received);
+        if cycle + 1 < order.len() {
+            assert!(!f.client.get_member(&id, &order[cycle + 1]).received);
+        }
+    }
+
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
+    for m in order.iter() {
+        assert_eq!(f.token.balance(m), 1_000);
+    }
+    assert_eq!(f.token.balance(&f.client.address), 0);
+}
