@@ -17,4 +17,5 @@ pub enum Error {
     IsCreator = 11,
     BadParams = 12,
     NotCreator = 13,
+    OpenCircleCapExceeded = 14,
 }
