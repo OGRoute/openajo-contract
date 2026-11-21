@@ -203,7 +203,7 @@ mod generated {
     /// Runs one generated circle to a terminal state. `pays[cycle][member]`
     /// says whether that member contributes in that cycle; a member that has
     /// already defaulted is skipped, as the contract forbids it paying.
-    fn run(size: usize, contribution: i128, deposit: i128, pays: &[Vec<bool>]) {
+    fn run(size: usize, contribution: i128, deposit: i128, pays: &[std::vec::Vec<bool>]) {
         let f = setup_sized(size, MINT);
         let minted = MINT * size as i128;
         let id = f.client.create_circle(
@@ -222,13 +222,13 @@ mod generated {
 
         // A cycle either pays out a member or ends the circle, so a circle of
         // `size` members terminates within `size` cycles.
-        for cycle in 0..size {
+        for (cycle, row) in pays.iter().enumerate().take(size) {
             let mut all_paid = true;
             for (i, m) in f.members.iter().enumerate() {
                 if f.client.get_member(&id, m).defaulted {
                     continue;
                 }
-                if pays[cycle][i] {
+                if row[i] {
                     f.client.contribute(&id, m);
                 } else {
                     all_paid = false;

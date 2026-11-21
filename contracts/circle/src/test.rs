@@ -4,6 +4,7 @@ use crate::test_utils::{
     advance_past_deadline, create_full_circle, setup, CONTRIB, DEPOSIT, PERIOD,
 };
 use crate::types::CircleStatus;
+use soroban_sdk::{testutils::Address as _, Address};
 
 #[test]
 fn full_lifecycle_3_members_3_cycles() {
