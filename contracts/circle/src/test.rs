@@ -985,3 +985,264 @@ fn zero_deposit_lifecycle_miss_defaults_immediately() {
     assert_eq!(f.rep.get_reputation(b).completed, 0);
     assert_eq!(f.rep.get_reputation(b).defaulted, 1);
 }
+
+// ---- Initialization -------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn initialize_twice_panics() {
+    let f = setup();
+    let other = Address::generate(&f.env);
+    f.client.initialize(&other, &f.rep.address);
+}
+
+// ---- Single-member cancel -------------------------------------------------
+
+#[test]
+fn cancel_immediately_after_creation_refunds_the_creator() {
+    let f = setup();
+    let [a, _, _] = &f.members;
+    f.env.ledger().with_mut(|l| l.timestamp = 2_000);
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    assert_eq!(f.token.balance(a), 1_000 - DEPOSIT);
+    assert_eq!(f.token.balance(&f.client.address), DEPOSIT);
+    assert_eq!(f.client.get_members(&id).len(), 1);
+
+    f.client.cancel(&id, a);
+
+    let circle = f.client.get_circle(&id);
+    assert_eq!(circle.status, CircleStatus::Cancelled);
+    assert_eq!(circle.started_at, 0);
+    assert_eq!(circle.ended_at, 2_000);
+    assert_eq!(f.client.get_member(&id, a).deposit_remaining, 0);
+    assert_eq!(f.token.balance(a), 1_000);
+    assert_eq!(f.token.balance(&f.client.address), 0);
+}
+
+// ---- cycle_deadline view --------------------------------------------------
+
+#[test]
+fn cycle_deadline_advances_by_period_after_each_settlement() {
+    let f = setup();
+    let start = 10_000;
+    f.env.ledger().with_mut(|l| l.timestamp = start);
+    let id = create_full_circle(&f);
+
+    // At activation the first deadline is one period after started_at.
+    assert_eq!(f.client.get_circle(&id).started_at, start);
+    assert_eq!(f.client.cycle_deadline(&id), start + PERIOD);
+
+    // Cycle 0 settles early (everyone paid): the deadline still moves by
+    // exactly one period, not relative to the settlement time.
+    f.env.ledger().with_mut(|l| l.timestamp = start + 10);
+    for m in f.members.iter() {
+        f.client.contribute(&id, m);
+    }
+    f.client.settle_cycle(&id);
+    assert_eq!(f.client.get_circle(&id).current_cycle, 1);
+    assert_eq!(f.client.cycle_deadline(&id), start + 2 * PERIOD);
+
+    // Cycle 1 settles late (past its deadline, with a miss): the deadline is
+    // anchored to started_at, so lateness does not push it further out.
+    let [a, b, c] = &f.members;
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, c);
+    f.env
+        .ledger()
+        .with_mut(|l| l.timestamp = start + 2 * PERIOD + 500);
+    f.client.settle_cycle(&id);
+    assert_eq!(
+        f.client.get_member(&id, b).deposit_remaining,
+        DEPOSIT - CONTRIB
+    );
+    assert_eq!(f.client.get_circle(&id).current_cycle, 2);
+    assert_eq!(f.client.cycle_deadline(&id), start + 3 * PERIOD);
+
+    // Final cycle completes the circle; current_cycle stays on the last
+    // index, so the view keeps reporting the last cycle's deadline.
+    for m in f.members.iter() {
+        f.client.contribute(&id, m);
+    }
+    f.client.settle_cycle(&id);
+    let circle = f.client.get_circle(&id);
+    assert_eq!(circle.status, CircleStatus::Completed);
+    assert_eq!(circle.current_cycle, 2);
+    assert_eq!(f.client.cycle_deadline(&id), start + 3 * PERIOD);
+}
+
+// ---- Concurrent circles ---------------------------------------------------
+
+/// The contract's balance of `token` equals the remaining deposits of
+/// `members` in circle `id`. Holds at cycle boundaries when `token` is used
+/// by this circle alone.
+fn assert_circle_escrow(
+    f: &Fixture,
+    token: &TokenClient,
+    id: u32,
+    members: &[&Address],
+    expected: i128,
+) {
+    let deposits: i128 = members
+        .iter()
+        .map(|m| f.client.get_member(&id, m).deposit_remaining)
+        .sum();
+    assert_eq!(deposits, expected);
+    assert_eq!(token.balance(&f.client.address), expected);
+}
+
+#[test]
+fn concurrent_circles_with_overlapping_members_stay_isolated() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let t1 = &f.token;
+
+    // Second token, funding only b and c.
+    let sac2 = f
+        .env
+        .register_stellar_asset_contract_v2(Address::generate(&f.env));
+    let t2 = TokenClient::new(&f.env, &sac2.address());
+    let mint2 = StellarAssetClient::new(&f.env, &sac2.address());
+    mint2.mint(b, &500);
+    mint2.mint(c, &500);
+
+    // Circle 1: token 1, size 3, 100/150, 1h. Circle 2: token 2, size 2,
+    // 40/60, 2h. b and c are members of both.
+    const C2: i128 = 40;
+    const D2: i128 = 60;
+    const P2: u64 = 7_200;
+    let start = 1_000;
+    f.env.ledger().with_mut(|l| l.timestamp = start);
+    let id1 = f
+        .client
+        .create_circle(a, &t1.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id1, b);
+    let id2 = f.client.create_circle(b, &t2.address, &C2, &D2, &2, &P2);
+    f.client.join(&id1, c);
+    f.client.join(&id2, c);
+    assert_eq!((id1, id2), (0, 1));
+    assert_eq!(f.client.total_circles(), 2);
+
+    let m1 = [a, b, c];
+    let m2 = [b, c];
+    let c1 = f.client.get_circle(&id1);
+    let c2 = f.client.get_circle(&id2);
+    assert_eq!(c1.status, CircleStatus::Active);
+    assert_eq!(c2.status, CircleStatus::Active);
+    assert_eq!(c1.token, t1.address);
+    assert_eq!(c2.token, t2.address);
+    assert_eq!(f.client.cycle_deadline(&id1), start + PERIOD);
+    assert_eq!(f.client.cycle_deadline(&id2), start + P2);
+
+    // Each deposit was taken in its own circle's token only.
+    for m in m1 {
+        assert_eq!(t1.balance(m), 1_000 - DEPOSIT);
+    }
+    for m in m2 {
+        assert_eq!(t2.balance(m), 500 - D2);
+    }
+    assert_eq!(t2.balance(a), 0);
+    assert_circle_escrow(&f, t1, id1, &m1, 3 * DEPOSIT);
+    assert_circle_escrow(&f, &t2, id2, &m2, 2 * D2);
+
+    // Circle 1 cycle 0: everyone pays. In circle 2 only b pays.
+    for m in m1 {
+        f.client.contribute(&id1, m);
+    }
+    f.client.contribute(&id2, b);
+    f.client.settle_cycle(&id1);
+    // a receives the 300 pot in token 1.
+    assert_eq!(t1.balance(a), 1_000 - DEPOSIT - CONTRIB + 3 * CONTRIB);
+    assert_eq!(t1.balance(b), 1_000 - DEPOSIT - CONTRIB);
+    assert_eq!(t1.balance(c), 1_000 - DEPOSIT - CONTRIB);
+    assert_circle_escrow(&f, t1, id1, &m1, 3 * DEPOSIT);
+
+    // c paying circle 1 does not count for circle 2, and circle 1 settling
+    // does not move circle 2: it is still in cycle 0 and not yet due.
+    assert_eq!(
+        f.client.try_settle_cycle(&id2),
+        Err(Ok(Error::NotDue.into()))
+    );
+    let c2 = f.client.get_circle(&id2);
+    assert_eq!(c2.current_cycle, 0);
+    assert_eq!(c2.slashed_total, 0);
+    assert!(!f.client.get_member(&id2, b).received);
+    assert_eq!(t2.balance(b), 500 - D2 - C2);
+    assert_eq!(t2.balance(&f.client.address), 2 * D2 + C2);
+
+    // Circle 2 cycle 0 settles at its deadline: c is slashed 40 of 60 and b
+    // receives the 80 pot in token 2.
+    f.env.ledger().with_mut(|l| l.timestamp = start + P2 + 1);
+    f.client.settle_cycle(&id2);
+    let c2 = f.client.get_circle(&id2);
+    assert_eq!(c2.current_cycle, 1);
+    assert_eq!(c2.slashed_total, C2);
+    assert!(f.client.get_member(&id2, b).received);
+    assert_eq!(f.client.get_member(&id2, c).deposit_remaining, D2 - C2);
+    assert_eq!(t2.balance(b), 500 - D2 - C2 + 2 * C2);
+    assert_eq!(t2.balance(c), 500 - D2);
+    assert_circle_escrow(&f, &t2, id2, &m2, D2 + (D2 - C2));
+
+    // c's slash in circle 2 leaves circle 1 untouched.
+    let c1 = f.client.get_circle(&id1);
+    assert_eq!(c1.current_cycle, 1);
+    assert_eq!(c1.slashed_total, 0);
+    for m in m1 {
+        let st = f.client.get_member(&id1, m);
+        assert_eq!(st.deposit_remaining, DEPOSIT);
+        assert!(!st.defaulted);
+    }
+    assert!(f.client.get_member(&id1, a).received);
+    assert!(!f.client.get_member(&id1, b).received);
+    assert_circle_escrow(&f, t1, id1, &m1, 3 * DEPOSIT);
+    assert_eq!(f.rep.get_reputation(c).defaulted, 0);
+
+    // Circle 1 cycle 1: everyone pays; b receives in token 1.
+    for m in m1 {
+        f.client.contribute(&id1, m);
+    }
+    f.client.settle_cycle(&id1);
+    assert_eq!(t1.balance(a), 1_000 - DEPOSIT - 2 * CONTRIB + 3 * CONTRIB);
+    assert_eq!(t1.balance(b), 1_000 - DEPOSIT - 2 * CONTRIB + 3 * CONTRIB);
+    assert_eq!(t1.balance(c), 1_000 - DEPOSIT - 2 * CONTRIB);
+    assert_circle_escrow(&f, t1, id1, &m1, 3 * DEPOSIT);
+
+    // Circle 2 cycle 1: both pay; c receives and circle 2 completes,
+    // returning b's 60 and c's remaining 20.
+    f.client.contribute(&id2, b);
+    f.client.contribute(&id2, c);
+    f.client.settle_cycle(&id2);
+    assert_eq!(f.client.get_circle(&id2).status, CircleStatus::Completed);
+    // b: -60 -40 +80 -40 +60 = 0. c: -60 (miss, 40 slashed) -40 +80 +20 = 0.
+    assert_eq!(t2.balance(b), 500);
+    assert_eq!(t2.balance(c), 500);
+    assert_eq!(t2.balance(&f.client.address), 0);
+    assert_eq!(f.rep.get_reputation(b).completed, 1);
+    assert_eq!(f.rep.get_reputation(c).completed, 1);
+    assert_eq!(f.rep.get_reputation(a).completed, 0);
+
+    // Circle 2 completing leaves circle 1 active, mid-rotation and fully
+    // escrowed in token 1.
+    let c1 = f.client.get_circle(&id1);
+    assert_eq!(c1.status, CircleStatus::Active);
+    assert_eq!(c1.current_cycle, 2);
+    assert_circle_escrow(&f, t1, id1, &m1, 3 * DEPOSIT);
+
+    // Circle 1 cycle 2: everyone pays; c receives and circle 1 completes.
+    for m in m1 {
+        f.client.contribute(&id1, m);
+    }
+    f.client.settle_cycle(&id1);
+    assert_eq!(f.client.get_circle(&id1).status, CircleStatus::Completed);
+    for m in m1 {
+        assert_eq!(t1.balance(m), 1_000);
+        assert_eq!(f.rep.get_reputation(m).defaulted, 0);
+    }
+    assert_eq!(t1.balance(&f.client.address), 0);
+    assert_eq!(t2.balance(&f.client.address), 0);
+    assert_eq!(t2.balance(a), 0);
+    assert_eq!(f.rep.get_reputation(a).completed, 1);
+    assert_eq!(f.rep.get_reputation(b).completed, 2);
+    assert_eq!(f.rep.get_reputation(c).completed, 2);
+}
