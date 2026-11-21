@@ -6,6 +6,22 @@ by design — see [Reputation](../design/reputation.md) for the rationale.
 Writes are gated by a two-check authorization: the caller must authenticate as
 itself **and** be on the admin's reporter allow-list.
 
+## Who signs each call
+
+Each auth entry has the shape
+`[signer, { function: { contract_fn { contract_address, function_name, args } }, sub_invocations: [...] }]`.
+When `circle` reports outcomes, the signer is the circle contract address
+itself, so contract auth satisfies `reporter.require_auth()` — it is the
+allow-list check below that keeps unauthorized reporters out.
+
+| Function | Signs with `require_auth` | Additional on-chain check |
+| --- | --- | --- |
+| `initialize(admin)` | nobody — open to anyone | none |
+| `set_reporter(admin, reporter, allowed)` | `admin` | `admin` must equal the stored admin, else `NotAdmin` |
+| `report_completion(reporter, member)` | `reporter` | `reporter` must be allow-listed, else `NotReporter` |
+| `report_default(reporter, member)` | `reporter` | same allow-list check |
+| `get_reputation(member)` | none — read-only simulation | none |
+
 ## Admin
 
 ### `initialize(admin)`

@@ -1,0 +1,10 @@
+# Resource cost baseline for the circle contract (three member circle).
+# Columns: entry point, CPU instructions, memory bytes.
+# Regenerate with UPDATE_COST_BASELINE=1 cargo test -p circle cost_baseline
+initialize 29918 4825
+create_circle 330100 62328
+join 338181 57916
+contribute 269189 45954
+leave 302056 50724
+cancel 303632 52547
+settle_cycle 666506 90174

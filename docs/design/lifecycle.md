@@ -77,3 +77,100 @@ Allowing an exit at that point would let a member who has already been paid walk
 away from their remaining contributions — which is exactly the failure mode the
 protocol exists to prevent. The deposit and the forward-only lifecycle are two
 halves of the same guarantee.
+
+## Sequence diagrams
+
+The diagrams below use a two-member circle (`size = 2`) as the running example.
+Deposits and contributions are shown as token transfers between participants and
+the circle contract; `require_auth()` calls are implicit on every arrow that
+names an acting address.
+
+### Create → join → contribute → settle → complete
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Creator
+    actor Member
+    participant Circle as Circle Contract
+    participant Token as Token (SAC)
+    participant Reputation as Reputation Contract
+    participant Crank as Anyone (crank)
+
+    Creator->>Circle: create_circle(creator, token, contribution, deposit, size=2, period_secs)
+    Circle->>Token: transfer(creator, Circle, deposit)
+    Token-->>Circle: ok
+    Circle-->>Creator: circle_id
+
+    Member->>Circle: join(circle_id, member)
+    Circle->>Token: transfer(member, Circle, deposit)
+    Token-->>Circle: ok
+    Note over Circle: members == size -> Active<br/>started_at = now, current_cycle = 0
+    Circle-->>Member: ok (circle activated)
+
+    par Cycle 0 contributions
+        Creator->>Circle: contribute(circle_id, creator)
+        Circle->>Token: transfer(creator, Circle, contribution)
+        Token-->>Circle: ok
+    and
+        Member->>Circle: contribute(circle_id, member)
+        Circle->>Token: transfer(member, Circle, contribution)
+        Token-->>Circle: ok
+    end
+
+    Crank->>Circle: settle_cycle(circle_id)
+    Note over Circle: due (all active members paid)
+    Circle->>Token: transfer(Circle, Creator, pot)
+    Note over Circle: Creator (index 0) receives pot<br/>marked received, current_cycle = 1
+    Circle-->>Crank: ok
+
+    par Cycle 1 contributions
+        Creator->>Circle: contribute(circle_id, creator)
+        Circle->>Token: transfer(creator, Circle, contribution)
+        Token-->>Circle: ok
+    and
+        Member->>Circle: contribute(circle_id, member)
+        Circle->>Token: transfer(member, Circle, contribution)
+        Token-->>Circle: ok
+    end
+
+    Crank->>Circle: settle_cycle(circle_id)
+    Note over Circle: due (all active members paid)
+    Circle->>Token: transfer(Circle, Member, pot)
+    Note over Circle: Member (index 1) receives pot<br/>marked received
+    Circle->>Token: refund remaining deposits (Creator, Member)
+    Circle->>Reputation: report_completion(Circle, Creator)
+    Circle->>Reputation: report_completion(Circle, Member)
+    Note over Circle: status = Completed
+    Circle-->>Crank: ok
+```
+
+### Cancel
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Creator
+    actor Member
+    participant Circle as Circle Contract
+    participant Token as Token (SAC)
+
+    Creator->>Circle: create_circle(creator, token, contribution, deposit, size=2, period_secs)
+    Circle->>Token: transfer(creator, Circle, deposit)
+    Token-->>Circle: ok
+    Circle-->>Creator: circle_id
+
+    Member->>Circle: join(circle_id, member)
+    Circle->>Token: transfer(member, Circle, deposit)
+    Token-->>Circle: ok
+    Circle-->>Member: ok (still Open)
+
+    Creator->>Circle: cancel(circle_id, creator)
+    Note over Circle: only while Open<br/>creator auth required
+    loop For each member
+        Circle->>Token: transfer(Circle, member, deposit_remaining)
+        Token-->>Circle: ok
+    end
+    Note over Circle: status = Cancelled<br/>no reputation recorded
+    Circle-->>Creator: ok
+```

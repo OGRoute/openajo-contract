@@ -22,7 +22,7 @@ cd openajo-contract
 cargo test
 ```
 
-30 tests across the two contracts. They run against Soroban's test host, not a
+34 tests across the two contracts. They run against Soroban's test host, not a
 real network, so they are fast and need no deployment. Every test that touches
 funds asserts **exact** balances — for example
 `insufficient_deposit_marks_default_and_skips_rotation` checks each member's and
@@ -94,6 +94,53 @@ error: soroban-sdk requires stellar-cli v25.2.0+ to build a contract
 needs, then prints the exported function list — a quick check that the contract
 surface is what you expect. `cargo test`, `clippy` and `fmt` are unaffected and
 still run directly.
+
+## Reproducible build (Docker)
+
+Verifying a deployment means rebuilding the exact wasm that was uploaded.
+`rust-toolchain.toml` tracks the `stable` channel, so two machines building at
+different times can use different compilers. The `Dockerfile` at the repo root
+pins every input in one place:
+
+| Input | Pinned to |
+| --- | --- |
+| Rust | `rust:1.100.0-slim-bookworm`, by image digest, with `RUSTUP_TOOLCHAIN=1.100.0` overriding the `stable` channel |
+| Stellar CLI | v28.1.0 (the CI version), checked against the release tarball's sha256 |
+| Platform | `linux/amd64`, also on Apple Silicon (Docker emulates it) |
+| Dependencies | `Cargo.lock`, enforced with `stellar contract build --locked` |
+| Source path | `/src` inside the container |
+
+Build through it with BuildKit (the default builder since Docker 23):
+
+```bash
+docker build --output type=local,dest=out .
+cat out/wasm.sha256
+```
+
+`out/` then holds `circle.wasm`, `reputation.wasm` and `wasm.sha256`, the
+`sha256sum` of both files:
+
+```
+<64 hex chars>  circle.wasm
+<64 hex chars>  reputation.wasm
+```
+
+Two machines that build the same commit this way must print the same two
+hashes. To check a deployed contract against them, compare with the hash of the
+fetched wasm:
+
+```bash
+stellar contract fetch --id <CONTRACT_ID> --network testnet --out-file deployed.wasm
+sha256sum deployed.wasm
+```
+
+`stellar contract build` also prints each file's `Wasm Hash`, so the hash from
+a CI run's **Wasm release build** step can be compared with `out/wasm.sha256`
+as well, as long as the runner's stable Rust is the pinned version.
+
+To move to a newer Rust or CLI, update the `FROM` line (tag and digest),
+`RUSTUP_TOOLCHAIN`, `STELLAR_CLI_VERSION` and `STELLAR_CLI_SHA256` together in
+one commit.
 
 ## Two toolchain traps
 

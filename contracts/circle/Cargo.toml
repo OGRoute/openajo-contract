@@ -10,6 +10,7 @@ doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
+ttl-helpers = { path = "../ttl-helpers" }
 
 [dev-dependencies]
 proptest = "1"

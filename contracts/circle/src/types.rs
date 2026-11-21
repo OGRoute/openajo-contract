@@ -15,6 +15,8 @@ pub enum DataKey {
     Member(u32, Address),
     /// bool contributed for (circle, cycle, address) — temporary storage.
     Paid(u32, u32, Address),
+    /// u32 count of Open circles for a creator — persistent storage.
+    OpenCircles(Address),
 }
 
 #[contracttype]
@@ -22,6 +24,7 @@ pub enum DataKey {
 pub struct GlobalConfig {
     pub admin: Address,
     pub reputation: Address,
+    pub open_circle_cap: u32,
 }
 
 #[contracttype]
@@ -54,6 +57,11 @@ pub struct Circle {
     pub started_at: u64,
     /// 0-based.
     pub current_cycle: u32,
+    /// Sum of every slash taken from members' deposits by `settle_cycle`,
+    /// raw token units. 0 until the first missed contribution.
+    pub slashed_total: i128,
+    /// Ledger timestamp at completion or cancellation; 0 while Open or Active.
+    pub ended_at: u64,
 }
 
 #[contracttype]

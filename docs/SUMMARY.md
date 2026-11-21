@@ -2,9 +2,14 @@
 
 * [Introduction](README.md)
 
+## 🏗️ Architecture
+
+* [Architecture & interactions](architecture.md)
+
 ## 🧠 Design
 
 * [The circle lifecycle](design/lifecycle.md)
+  * [Sequence diagrams](design/lifecycle.md#sequence-diagrams)
 * [Deposits, slashing & default](design/deposits-and-default.md)
 * [Settlement](design/settlement.md)
 * [Reputation](design/reputation.md)
@@ -22,6 +27,10 @@
 
 * [Build and test](building/build-and-test.md)
 * [Deploy to testnet](building/deploy.md)
+
+## 🤖 Operating
+
+* [Settling cycles (keeper guide)](keeper.md)
 
 ## 🤝 Contributing
 

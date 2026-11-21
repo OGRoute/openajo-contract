@@ -339,6 +339,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "open_circle_cap"
+                            },
+                            "val": {
+                              "u32": 4294967295
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "reputation"
                             },
                             "val": {

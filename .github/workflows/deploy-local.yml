@@ -1,0 +1,47 @@
+name: Deploy script (local network)
+
+on:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - "contracts/**"
+      - "Cargo.*"
+      - ".github/workflows/deploy-local.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/**"
+      - "contracts/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-local:
+    name: deploy.sh against stellar container
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      STELLAR_CLI_VERSION: 28.1.0
+      REQUIRE_LOCAL_NETWORK: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+          targets: wasm32v1-none
+
+      - name: Install stellar CLI
+        run: |
+          curl -sSfL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin stellar
+          stellar --version
+
+      - name: Deploy and run a circle on a local network
+        run: ./scripts/test-deploy-local.sh

@@ -11,17 +11,8 @@ mod types;
 
 use errors::Error;
 use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env};
+use ttl_helpers::{extend_instance, extend_persistent};
 use types::{DataKey, Reputation};
-
-/// ~15 days / ~30 days at 5s ledgers.
-const TTL_THRESHOLD: u32 = 259_200;
-const TTL_EXTEND: u32 = 518_400;
-
-fn extend_instance(env: &Env) {
-    env.storage()
-        .instance()
-        .extend_ttl(TTL_THRESHOLD, TTL_EXTEND);
-}
 
 #[contract]
 pub struct ReputationContract;
@@ -100,9 +91,7 @@ impl ReputationContract {
     fn write_rep(env: &Env, member: &Address, rep: &Reputation) {
         let key = DataKey::Rep(member.clone());
         env.storage().persistent().set(&key, rep);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND);
+        extend_persistent(env, &key);
     }
 }
 
