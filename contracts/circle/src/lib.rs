@@ -7,6 +7,9 @@
 //! are slashed from the member's deposit; a deposit that cannot cover a miss
 //! marks the member defaulted (skipped in rotation, reported to `reputation`).
 
+#[cfg(test)]
+extern crate std;
+
 mod errors;
 mod events;
 mod settlement;
@@ -282,6 +285,9 @@ impl CircleContract {
 }
 
 mod test;
+
+#[cfg(test)]
+mod test_utils;
 
 mod test_invariants;
 

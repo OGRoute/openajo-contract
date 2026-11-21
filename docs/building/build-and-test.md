@@ -33,9 +33,46 @@ They are organised by what they protect:
 | Module | What it covers |
 | --- | --- |
 | `circle::test` | the lifecycle, slashing, defaults, refunds and every error path |
-| `circle::test_invariants` | value conservation and escrow composition after **every** state change |
+| `circle::test_invariants` | value conservation and escrow composition after **every** state change, plus proptest-generated circles |
+| `circle::test_utils` | shared fixtures (`setup`, `create_full_circle`, ...) imported by the test modules |
 | `circle::test_reputation` | reputation accumulating across circles, through the real contracts |
 | `reputation::test` | reporter authorization, and that revocation never rewrites history |
+
+## Property-based tests
+
+`circle::test_invariants::generated` uses [proptest](https://docs.rs/proptest)
+to generate whole circles (2 to 6 members, contribution, deposit, and a random
+pay/miss decision per member per cycle), run them to completion and assert that
+token supply is conserved after every call and that no escrow remains at the
+end. It runs as part of `cargo test` (48 cases by default).
+
+```bash
+PROPTEST_CASES=1000 cargo test -p circle random_circles   # deeper local run
+```
+
+A failing case is shrunk to a minimal input and saved to
+`contracts/circle/proptest-regressions/`; it is replayed first on every later
+run, so the failure stays reproducible. Commit that file with the fix.
+
+## Fuzzing
+
+`fuzz/` is a [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) crate (kept
+out of the root workspace, so `cargo test` and `clippy` never build it). The
+`circle_sequence` target drives arbitrary sequences of `join`, `leave`,
+`cancel`, `contribute` and `settle_cycle` calls and ledger time jumps through
+the Soroban test host. It fails on any error that is not a declared contract
+`Error`, on any change in total token supply, and on a terminal circle that
+still holds escrow.
+
+```bash
+cargo install cargo-fuzz        # once; needs a nightly toolchain
+cargo +nightly fuzz run circle_sequence -- -max_total_time=60
+```
+
+Crashing inputs are written to `fuzz/artifacts/circle_sequence/`; replay one
+with `cargo +nightly fuzz run circle_sequence <path>`. A short run
+(`-max_total_time=60`) is cheap enough to add as an optional CI job; it is not
+enabled by default.
 
 ## Build the wasm
 

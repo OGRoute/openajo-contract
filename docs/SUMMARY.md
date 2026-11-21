@@ -13,6 +13,7 @@
 * [Deposits, slashing & default](design/deposits-and-default.md)
 * [Settlement](design/settlement.md)
 * [Reputation](design/reputation.md)
+* [Decision: member status flags](design/member-status.md)
 
 ## 📜 Contract reference
 

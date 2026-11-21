@@ -7,7 +7,7 @@
 //! the reputation crate check the reporter rules; these check that running
 //! actual circles produces an accumulating, per-address record.
 
-use crate::test::{
+use crate::test_utils::{
     advance_past_deadline, create_full_circle, setup, Fixture, CONTRIB, DEPOSIT, PERIOD,
 };
 use crate::types::CircleStatus;

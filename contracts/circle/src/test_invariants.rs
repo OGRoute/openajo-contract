@@ -12,7 +12,7 @@
 //!    deposits — every contribution collected has been paid out as the pot.
 //! 3. A terminal circle (completed or cancelled) leaves the contract empty.
 
-use crate::test::{
+use crate::test_utils::{
     advance_past_deadline, create_full_circle, setup, Fixture, CONTRIB, DEPOSIT, PERIOD,
 };
 
@@ -172,4 +172,103 @@ fn supply_is_conserved_through_leaving_and_cancelling() {
     assert_conserved(&f, minted);
     assert_eq!(escrowed(&f), 0);
     assert_eq!(circulating(&f), minted);
+}
+
+// ---- Property-based settlement tests ----------------------------------------
+//
+// The tests above replay hand-written scenarios. These generate whole circles
+// (size, contribution, deposit) and a random pay/miss pattern for every member
+// in every cycle, run them to a terminal state and assert the invariants.
+//
+// Reproducing a failure: proptest prints the minimal failing input and records
+// it in `proptest-regressions/` next to this crate, which is replayed first on
+// every later run, so commit that file with the fix. `PROPTEST_CASES` scales
+// the case count; see docs/building/build-and-test.md.
+
+mod generated {
+    use crate::test_utils::{advance_past_deadline_sized, setup_sized, SizedFixture};
+    use crate::types::CircleStatus;
+    use proptest::prelude::*;
+
+    const MINT: i128 = 100_000;
+
+    fn circulating(f: &SizedFixture) -> i128 {
+        f.members.iter().map(|m| f.token.balance(m)).sum()
+    }
+
+    fn escrowed(f: &SizedFixture) -> i128 {
+        f.token.balance(&f.client.address)
+    }
+
+    /// Runs one generated circle to a terminal state. `pays[cycle][member]`
+    /// says whether that member contributes in that cycle; a member that has
+    /// already defaulted is skipped, as the contract forbids it paying.
+    fn run(size: usize, contribution: i128, deposit: i128, pays: &[std::vec::Vec<bool>]) {
+        let f = setup_sized(size, MINT);
+        let minted = MINT * size as i128;
+        let id = f.client.create_circle(
+            &f.members[0],
+            &f.token.address,
+            &contribution,
+            &deposit,
+            &(size as u32),
+            &3600,
+        );
+        for m in f.members.iter().skip(1) {
+            f.client.join(&id, m);
+        }
+        assert_eq!(f.client.get_circle(&id).status, CircleStatus::Active);
+        assert_eq!(circulating(&f) + escrowed(&f), minted);
+
+        // A cycle either pays out a member or ends the circle, so a circle of
+        // `size` members terminates within `size` cycles.
+        for (cycle, row) in pays.iter().enumerate().take(size) {
+            let mut all_paid = true;
+            for (i, m) in f.members.iter().enumerate() {
+                if f.client.get_member(&id, m).defaulted {
+                    continue;
+                }
+                if row[i] {
+                    f.client.contribute(&id, m);
+                } else {
+                    all_paid = false;
+                }
+                assert_eq!(circulating(&f) + escrowed(&f), minted);
+            }
+            if !all_paid {
+                advance_past_deadline_sized(&f, id);
+            }
+            f.client.settle_cycle(&id);
+            assert_eq!(
+                circulating(&f) + escrowed(&f),
+                minted,
+                "supply drifted after settling cycle {cycle}"
+            );
+            if f.client.get_circle(&id).status == CircleStatus::Completed {
+                break;
+            }
+        }
+
+        assert_eq!(
+            f.client.get_circle(&id).status,
+            CircleStatus::Completed,
+            "circle did not terminate within size cycles"
+        );
+        assert_eq!(escrowed(&f), 0, "escrow stranded at completion");
+        assert_eq!(circulating(&f), minted);
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(48))]
+
+        #[test]
+        fn random_circles_conserve_supply_and_leave_no_residual_escrow(
+            size in 2usize..=6,
+            contribution in 1i128..=200,
+            deposit in 0i128..=500,
+            pays in prop::collection::vec(prop::collection::vec(any::<bool>(), 6), 6),
+        ) {
+            run(size, contribution, deposit, &pays);
+        }
+    }
 }
