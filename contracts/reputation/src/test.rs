@@ -288,3 +288,97 @@ fn unlisted_reporter_with_auth_fails_not_reporter() {
         Err(Ok(Error::NotReporter.into()))
     );
 }
+
+// ---- Counter overflow (#106) ----------------------------------------------
+
+/// Writes `rep` straight into the member's record, bypassing the reporter
+/// path, so a test can start from a counter near `u32::MAX`.
+fn seed(env: &Env, client: &ReputationContractClient, member: &Address, rep: &Reputation) {
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .set(&crate::types::DataKey::Rep(member.clone()), rep);
+    });
+}
+
+#[test]
+fn completed_counter_overflow_panics_and_keeps_record() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    seed(
+        &env,
+        &client,
+        &member,
+        &Reputation {
+            completed: u32::MAX - 1,
+            defaulted: 7,
+        },
+    );
+
+    // The last representable value is still reachable.
+    client.report_completion(&reporter, &member);
+    assert_eq!(client.get_reputation(&member).completed, u32::MAX);
+
+    // `completed += 1` on u32::MAX trips the overflow check (enabled in both
+    // the test profile and the release wasm profile): the call aborts rather
+    // than wrapping to 0, and the stored record is left untouched.
+    assert!(client.try_report_completion(&reporter, &member).is_err());
+    assert_eq!(
+        client.get_reputation(&member),
+        Reputation {
+            completed: u32::MAX,
+            defaulted: 7
+        }
+    );
+}
+
+#[test]
+fn defaulted_counter_overflow_panics_and_keeps_record() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    seed(
+        &env,
+        &client,
+        &member,
+        &Reputation {
+            completed: 3,
+            defaulted: u32::MAX,
+        },
+    );
+
+    assert!(client.try_report_default(&reporter, &member).is_err());
+    assert_eq!(
+        client.get_reputation(&member),
+        Reputation {
+            completed: 3,
+            defaulted: u32::MAX
+        }
+    );
+
+    // A saturated `defaulted` counter does not block the other counter.
+    client.report_completion(&reporter, &member);
+    assert_eq!(client.get_reputation(&member).completed, 4);
+}
+
+#[test]
+#[should_panic(expected = "overflow")]
+fn completed_counter_overflow_is_an_arithmetic_panic() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    seed(
+        &env,
+        &client,
+        &member,
+        &Reputation {
+            completed: u32::MAX,
+            defaulted: 0,
+        },
+    );
+    client.report_completion(&reporter, &member);
+}

@@ -1483,3 +1483,274 @@ fn rejoin_after_leaving_starts_fresh_at_the_end() {
     }
     assert_eq!(f.token.balance(&f.client.address), 0);
 }
+
+// ---- Unknown circle ids (#88) ---------------------------------------------
+
+const UNKNOWN_ID: u32 = 999;
+
+#[test]
+fn join_unknown_circle_panics_not_found() {
+    let f = setup();
+    assert_eq!(
+        f.client.try_join(&UNKNOWN_ID, &f.members[0]),
+        Err(Ok(Error::NotFound.into()))
+    );
+}
+
+#[test]
+fn leave_unknown_circle_panics_not_found() {
+    let f = setup();
+    assert_eq!(
+        f.client.try_leave(&UNKNOWN_ID, &f.members[0]),
+        Err(Ok(Error::NotFound.into()))
+    );
+}
+
+#[test]
+fn cancel_unknown_circle_panics_not_found() {
+    let f = setup();
+    assert_eq!(
+        f.client.try_cancel(&UNKNOWN_ID, &f.members[0]),
+        Err(Ok(Error::NotFound.into()))
+    );
+}
+
+#[test]
+fn contribute_unknown_circle_panics_not_found() {
+    let f = setup();
+    assert_eq!(
+        f.client.try_contribute(&UNKNOWN_ID, &f.members[0]),
+        Err(Ok(Error::NotFound.into()))
+    );
+}
+
+#[test]
+fn settle_cycle_unknown_circle_panics_not_found() {
+    let f = setup();
+    assert_eq!(
+        f.client.try_settle_cycle(&UNKNOWN_ID),
+        Err(Ok(Error::NotFound.into()))
+    );
+}
+
+#[test]
+fn get_circle_unknown_circle_panics_not_found() {
+    let f = setup();
+    // `Circle` has no `PartialEq`, so compare the error side only.
+    assert_eq!(
+        f.client.try_get_circle(&UNKNOWN_ID).err(),
+        Some(Ok(Error::NotFound.into()))
+    );
+}
+
+#[test]
+fn get_members_unknown_circle_panics_not_found() {
+    let f = setup();
+    assert_eq!(
+        f.client.try_get_members(&UNKNOWN_ID),
+        Err(Ok(Error::NotFound.into()))
+    );
+}
+
+#[test]
+fn cycle_deadline_unknown_circle_panics_not_found() {
+    let f = setup();
+    assert_eq!(
+        f.client.try_cycle_deadline(&UNKNOWN_ID),
+        Err(Ok(Error::NotFound.into()))
+    );
+}
+
+#[test]
+fn get_member_unknown_circle_panics_not_member() {
+    let f = setup();
+    // `get_member` never loads the circle: it reads the (circle, member)
+    // record directly, so an unknown id surfaces as NotMember, not NotFound.
+    // Pinned so a change to that lookup order is a deliberate one.
+    assert_eq!(
+        f.client.try_get_member(&UNKNOWN_ID, &f.members[0]),
+        Err(Ok(Error::NotMember.into()))
+    );
+}
+
+#[test]
+fn unknown_id_errors_write_nothing() {
+    let f = setup();
+    let id = create_full_circle(&f);
+    let _ = f.client.try_join(&UNKNOWN_ID, &f.members[0]);
+    let _ = f.client.try_contribute(&UNKNOWN_ID, &f.members[0]);
+    let _ = f.client.try_settle_cycle(&UNKNOWN_ID);
+    assert_eq!(f.client.total_circles(), id + 1);
+    assert_eq!(f.token.balance(&f.client.address), 3 * DEPOSIT);
+}
+
+// ---- Insufficient balance reverts atomically (#105) -----------------------
+
+/// A fresh address holding `amount` units of the fixture token.
+fn member_with_balance(f: &Fixture, amount: i128) -> Address {
+    let m = Address::generate(&f.env);
+    if amount > 0 {
+        StellarAssetClient::new(&f.env, &f.token.address).mint(&m, &amount);
+    }
+    m
+}
+
+#[test]
+fn create_with_insufficient_balance_reverts_atomically() {
+    let f = setup();
+    let poor = member_with_balance(&f, DEPOSIT - 1);
+    let before = f.client.total_circles();
+
+    let res = f
+        .client
+        .try_create_circle(&poor, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    assert!(res.is_err());
+
+    // No id consumed, no circle, no member record, no funds moved.
+    assert_eq!(f.client.total_circles(), before);
+    assert_eq!(
+        f.client.try_get_circle(&before).err(),
+        Some(Ok(Error::NotFound.into()))
+    );
+    assert_eq!(
+        f.client.try_get_members(&before),
+        Err(Ok(Error::NotFound.into()))
+    );
+    assert_eq!(f.token.balance(&poor), DEPOSIT - 1);
+    assert_eq!(f.token.balance(&f.client.address), 0);
+
+    // The open-circle counter was not bumped either: with a cap of 1 the
+    // same creator can still open a circle once funded.
+    f.client.set_open_circle_cap(&1);
+    StellarAssetClient::new(&f.env, &f.token.address).mint(&poor, &1);
+    let id = f
+        .client
+        .create_circle(&poor, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    assert_eq!(id, before);
+}
+
+#[test]
+fn join_with_insufficient_balance_reverts_atomically() {
+    let f = setup();
+    let [a, b, _c] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    let poor = member_with_balance(&f, DEPOSIT - 1);
+    let members_before = f.client.get_members(&id);
+    let escrow_before = f.token.balance(&f.client.address);
+
+    assert!(f.client.try_join(&id, &poor).is_err());
+
+    // Not added to the member list, no member record, circle still Open
+    // (the failed join would have been the activating one).
+    assert_eq!(f.client.get_members(&id), members_before);
+    assert_eq!(
+        f.client.try_get_member(&id, &poor),
+        Err(Ok(Error::NotMember.into()))
+    );
+    let circle = f.client.get_circle(&id);
+    assert_eq!(circle.status, CircleStatus::Open);
+    assert_eq!(circle.started_at, 0);
+    assert_eq!(f.token.balance(&poor), DEPOSIT - 1);
+    assert_eq!(f.token.balance(&f.client.address), escrow_before);
+}
+
+#[test]
+fn contribute_with_insufficient_balance_reverts_atomically() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+    // Drain c down to one unit short of a contribution.
+    let sink = Address::generate(&f.env);
+    let spare = f.token.balance(c) - (CONTRIB - 1);
+    f.token.transfer(c, &sink, &spare);
+    let escrow_before = f.token.balance(&f.client.address);
+
+    assert!(f.client.try_contribute(&id, c).is_err());
+
+    // No funds moved and c is not marked paid for this cycle: with a and b
+    // paid, the cycle is still not due before the deadline.
+    assert_eq!(f.token.balance(c), CONTRIB - 1);
+    assert_eq!(f.token.balance(&f.client.address), escrow_before);
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    assert_eq!(
+        f.client.try_settle_cycle(&id),
+        Err(Ok(Error::NotDue.into()))
+    );
+    let circle = f.client.get_circle(&id);
+    assert_eq!(circle.current_cycle, 0);
+    assert_eq!(circle.status, CircleStatus::Active);
+    assert_eq!(f.client.get_member(&id, c).deposit_remaining, DEPOSIT);
+
+    // Once funded, c can still pay this cycle (no stale "paid" flag).
+    StellarAssetClient::new(&f.env, &f.token.address).mint(c, &1);
+    f.client.contribute(&id, c);
+    f.client.settle_cycle(&id);
+    assert!(f.client.get_member(&id, a).received);
+}
+
+// ---- settle_cycle on finished circles (#87) -------------------------------
+
+fn balances(f: &Fixture) -> [i128; 4] {
+    [
+        f.token.balance(&f.client.address),
+        f.token.balance(&f.members[0]),
+        f.token.balance(&f.members[1]),
+        f.token.balance(&f.members[2]),
+    ]
+}
+
+#[test]
+fn settle_cycle_on_completed_circle_panics_bad_status() {
+    let f = setup();
+    let id = create_full_circle(&f);
+    complete_circle(&f, id);
+    let circle = f.client.get_circle(&id);
+    assert_eq!(circle.status, CircleStatus::Completed);
+    let before = balances(&f);
+
+    // Well past every deadline, so only the status guard can stop it.
+    advance_past_deadline(&f, id);
+    assert_eq!(
+        f.client.try_settle_cycle(&id),
+        Err(Ok(Error::BadStatus.into()))
+    );
+
+    assert_eq!(balances(&f), before);
+    let after = f.client.get_circle(&id);
+    assert_eq!(after.status, CircleStatus::Completed);
+    assert_eq!(after.current_cycle, circle.current_cycle);
+    assert_eq!(after.ended_at, circle.ended_at);
+    for m in f.members.iter() {
+        assert_eq!(f.rep.get_reputation(m).completed, 1);
+    }
+}
+
+#[test]
+fn settle_cycle_on_cancelled_circle_panics_bad_status() {
+    let f = setup();
+    let [a, b, _c] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.cancel(&id, a);
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Cancelled);
+    let before = balances(&f);
+
+    f.env.ledger().with_mut(|l| l.timestamp += 10 * PERIOD);
+    assert_eq!(
+        f.client.try_settle_cycle(&id),
+        Err(Ok(Error::BadStatus.into()))
+    );
+
+    assert_eq!(balances(&f), before);
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Cancelled);
+    for m in [a, b] {
+        assert_eq!(f.rep.get_reputation(m).completed, 0);
+        assert_eq!(f.rep.get_reputation(m).defaulted, 0);
+    }
+}
