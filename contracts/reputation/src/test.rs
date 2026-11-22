@@ -1,7 +1,12 @@
 #![cfg(test)]
 
-use crate::{types::Reputation, ReputationContract, ReputationContractClient};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+extern crate std;
+
+use crate::{errors::Error, types::Reputation, ReputationContract, ReputationContractClient};
+use soroban_sdk::{
+    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation},
+    Address, Env, IntoVal, Symbol, Val, Vec,
+};
 
 fn setup() -> (Env, ReputationContractClient<'static>, Address) {
     let env = Env::default();
@@ -158,4 +163,222 @@ fn records_are_kept_per_member() {
             defaulted: 1
         }
     );
+}
+
+// ---- Authorization --------------------------------------------------------
+//
+// `setup()` uses `mock_all_auths`, so a dropped `require_auth` would not make
+// any other test fail. These assert the exact address whose authorisation
+// each call consumes, and that the call fails when that authorisation is
+// missing.
+
+/// The single top-level authorisation `signer` gives for `fn_name(args)` on
+/// the reputation contract.
+fn expected_auth(
+    client: &ReputationContractClient,
+    signer: &Address,
+    fn_name: &str,
+    args: Vec<Val>,
+) -> std::vec::Vec<(Address, AuthorizedInvocation)> {
+    std::vec![(
+        signer.clone(),
+        AuthorizedInvocation {
+            function: AuthorizedFunction::Contract((
+                client.address.clone(),
+                Symbol::new(&client.env, fn_name),
+                args,
+            )),
+            sub_invocations: std::vec![],
+        },
+    )]
+}
+
+#[test]
+fn set_reporter_requires_admin_auth() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    assert_eq!(
+        env.auths(),
+        expected_auth(
+            &client,
+            &admin,
+            "set_reporter",
+            (admin.clone(), reporter.clone(), true).into_val(&env),
+        )
+    );
+}
+
+#[test]
+fn report_completion_requires_reporter_auth() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    client.report_completion(&reporter, &member);
+    // The reporter authorises; the member being reported does not.
+    assert_eq!(
+        env.auths(),
+        expected_auth(
+            &client,
+            &reporter,
+            "report_completion",
+            (reporter.clone(), member.clone()).into_val(&env),
+        )
+    );
+}
+
+#[test]
+fn report_default_requires_reporter_auth() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    client.report_default(&reporter, &member);
+    assert_eq!(
+        env.auths(),
+        expected_auth(
+            &client,
+            &reporter,
+            "report_default",
+            (reporter.clone(), member.clone()).into_val(&env),
+        )
+    );
+}
+
+#[test]
+fn set_reporter_without_admin_auth_fails() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    env.set_auths(&[]);
+    assert!(client.try_set_reporter(&admin, &reporter, &true).is_err());
+}
+
+#[test]
+fn report_completion_without_reporter_auth_fails() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    env.set_auths(&[]);
+    // Allow-listed, but the reporter did not sign: rejected before any write.
+    assert!(client.try_report_completion(&reporter, &member).is_err());
+    assert_eq!(client.get_reputation(&member).completed, 0);
+}
+
+#[test]
+fn report_default_without_reporter_auth_fails() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    env.set_auths(&[]);
+    assert!(client.try_report_default(&reporter, &member).is_err());
+    assert_eq!(client.get_reputation(&member).defaulted, 0);
+}
+
+#[test]
+fn unlisted_reporter_with_auth_fails_not_reporter() {
+    let (env, client, _) = setup();
+    let rogue = Address::generate(&env);
+    let member = Address::generate(&env);
+    // Auth alone is not enough: the allow-list check must also pass.
+    assert_eq!(
+        client.try_report_default(&rogue, &member),
+        Err(Ok(Error::NotReporter.into()))
+    );
+}
+
+// ---- Counter overflow (#106) ----------------------------------------------
+
+/// Writes `rep` straight into the member's record, bypassing the reporter
+/// path, so a test can start from a counter near `u32::MAX`.
+fn seed(env: &Env, client: &ReputationContractClient, member: &Address, rep: &Reputation) {
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .set(&crate::types::DataKey::Rep(member.clone()), rep);
+    });
+}
+
+#[test]
+fn completed_counter_overflow_panics_and_keeps_record() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    seed(
+        &env,
+        &client,
+        &member,
+        &Reputation {
+            completed: u32::MAX - 1,
+            defaulted: 7,
+        },
+    );
+
+    // The last representable value is still reachable.
+    client.report_completion(&reporter, &member);
+    assert_eq!(client.get_reputation(&member).completed, u32::MAX);
+
+    // `completed += 1` on u32::MAX trips the overflow check (enabled in both
+    // the test profile and the release wasm profile): the call aborts rather
+    // than wrapping to 0, and the stored record is left untouched.
+    assert!(client.try_report_completion(&reporter, &member).is_err());
+    assert_eq!(
+        client.get_reputation(&member),
+        Reputation {
+            completed: u32::MAX,
+            defaulted: 7
+        }
+    );
+}
+
+#[test]
+fn defaulted_counter_overflow_panics_and_keeps_record() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    seed(
+        &env,
+        &client,
+        &member,
+        &Reputation {
+            completed: 3,
+            defaulted: u32::MAX,
+        },
+    );
+
+    assert!(client.try_report_default(&reporter, &member).is_err());
+    assert_eq!(
+        client.get_reputation(&member),
+        Reputation {
+            completed: 3,
+            defaulted: u32::MAX
+        }
+    );
+
+    // A saturated `defaulted` counter does not block the other counter.
+    client.report_completion(&reporter, &member);
+    assert_eq!(client.get_reputation(&member).completed, 4);
+}
+
+#[test]
+#[should_panic(expected = "overflow")]
+fn completed_counter_overflow_is_an_arithmetic_panic() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    seed(
+        &env,
+        &client,
+        &member,
+        &Reputation {
+            completed: u32::MAX,
+            defaulted: 0,
+        },
+    );
+    client.report_completion(&reporter, &member);
 }

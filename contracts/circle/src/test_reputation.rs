@@ -7,7 +7,10 @@
 //! the reputation crate check the reporter rules; these check that running
 //! actual circles produces an accumulating, per-address record.
 
-use crate::test::{advance_past_deadline, create_full_circle, params, setup, Fixture};
+use crate::test_utils::params_full;
+use crate::test_utils::{
+    advance_past_deadline, create_full_circle, setup, Fixture, CONTRIB, DEPOSIT, PERIOD,
+};
 use crate::types::CircleStatus;
 
 /// Runs a circle to completion with every member paying every cycle.
@@ -79,7 +82,10 @@ fn a_cancelled_circle_records_nothing() {
     let f = setup();
     let [a, b, _c] = &f.members;
 
-    let id = f.client.create_circle(a, &params(&f.token.address, 3));
+    let id = f.client.create_circle(
+        a,
+        &params_full(&f.token.address, CONTRIB, DEPOSIT, 3, PERIOD),
+    );
     f.client.join(&id, b);
     f.client.cancel(&id, a);
 
@@ -96,7 +102,10 @@ fn leaving_before_activation_records_nothing() {
     let f = setup();
     let [a, b, _c] = &f.members;
 
-    let id = f.client.create_circle(a, &params(&f.token.address, 3));
+    let id = f.client.create_circle(
+        a,
+        &params_full(&f.token.address, CONTRIB, DEPOSIT, 3, PERIOD),
+    );
     f.client.join(&id, b);
     f.client.leave(&id, b);
 

@@ -95,6 +95,7 @@ involved, and the tests expected. Start with a
 [`good first issue`](https://github.com/OGRoute/openajo-contract/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22),
 comment to claim it, then follow [CONTRIBUTING.md](CONTRIBUTING.md).
 
+- [Changelog](CHANGELOG.md) — release notes and deployment history
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md) — anything that can move, strand or leak funds is reported privately
 

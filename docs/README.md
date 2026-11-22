@@ -56,6 +56,7 @@ proposing any change there.
 
 ## Where to go next
 
+* How the pieces fit together → [Architecture & interactions](architecture.md)
 * How a circle moves through its states → [The circle lifecycle](design/lifecycle.md)
 * How the pot is collected and paid → [Settlement](design/settlement.md)
 * Function-by-function → [`circle` reference](reference/circle.md)

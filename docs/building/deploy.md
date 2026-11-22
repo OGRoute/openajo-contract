@@ -1,7 +1,8 @@
-# Deploy to testnet
+# Deploy
 
-`scripts/deploy.sh` deploys both contracts to Stellar testnet in the correct
-dependency order and wires them together. Run it as-is or read it as the
+`scripts/deploy.sh` deploys both contracts to Stellar in the correct
+dependency order and wires them together. It targets testnet by default and
+supports mainnet with an explicit opt-in. Run it as-is or read it as the
 canonical deployment recipe.
 
 ```bash
@@ -47,9 +48,31 @@ Put the two contract ids into the app repo's configuration —
 STELLAR_IDENTITY=mykey STELLAR_NETWORK=testnet ./scripts/deploy.sh
 ```
 
-The script only targets testnet networks. **Do not point it at mainnet** — these
-contracts are unaudited, and the [security posture](../contributing.md#security)
-is testnet-only.
+## Resuming a partial deploy
+
+If a run fails partway through, rerunning from scratch would deploy a second
+reputation contract. Instead, pass the ids that were already created so those
+steps are skipped:
+
+```bash
+REPUTATION_CONTRACT_ID=C... ./scripts/deploy.sh
+REPUTATION_CONTRACT_ID=C... CIRCLE_CONTRACT_ID=C... ./scripts/deploy.sh
+```
+
+## Mainnet
+
+Mainnet is supported, but friendbot does not exist there, so the script never
+funds an identity on mainnet — fund `STELLAR_IDENTITY` out of band first.
+Because mistakes on mainnet are irreversible, an explicit confirmation is
+required and a summary is printed before any transaction is sent:
+
+```bash
+CONFIRM_MAINNET=1 STELLAR_IDENTITY=mykey STELLAR_NETWORK=mainnet ./scripts/deploy.sh
+```
+
+Run without `CONFIRM_MAINNET=1` and the script exits before sending anything.
+These contracts are unaudited — see the [security posture](../contributing.md#security)
+before deploying mainnet funds.
 
 ## Deriving the token contract
 

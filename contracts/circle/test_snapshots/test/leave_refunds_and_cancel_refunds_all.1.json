@@ -577,6 +577,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "ended_at"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "period_secs"
                     },
                     "val": {
@@ -589,6 +597,14 @@
                     },
                     "val": {
                       "u32": 3
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "slashed_total"
+                    },
+                    "val": {
+                      "i128": "0"
                     }
                   },
                   {
@@ -663,7 +679,7 @@
                       "symbol": "deposit_remaining"
                     },
                     "val": {
-                      "i128": "150"
+                      "i128": "0"
                     }
                   },
                   {
@@ -718,7 +734,7 @@
                       "symbol": "deposit_remaining"
                     },
                     "val": {
-                      "i128": "150"
+                      "i128": "0"
                     }
                   },
                   {
@@ -778,6 +794,33 @@
             "contract_data": {
               "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "OpenCircles"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 0
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
               "key": "ledger_key_contract_instance",
               "durability": "persistent",
               "val": {
@@ -802,6 +845,14 @@
                             },
                             "val": {
                               "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "open_circle_cap"
+                            },
+                            "val": {
+                              "u32": 4294967295
                             }
                           },
                           {
