@@ -2,7 +2,11 @@
 
 extern crate std;
 
-use crate::{errors::Error, types::CircleStatus, CircleContract, CircleContractClient};
+use crate::{
+    errors::Error,
+    types::{CircleStatus, MemberState},
+    CircleContract, CircleContractClient,
+};
 use soroban_sdk::{
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Ledger},
     token::{StellarAssetClient, TokenClient},
@@ -1753,4 +1757,253 @@ fn settle_cycle_on_cancelled_circle_panics_bad_status() {
         assert_eq!(f.rep.get_reputation(m).completed, 0);
         assert_eq!(f.rep.get_reputation(m).defaulted, 0);
     }
+}
+
+// ---- Views across the lifecycle -------------------------------------------
+
+/// Asserts every field `get_circle` returns for a circle created by `creator`
+/// with the fixture's token and default parameters (size 3).
+#[allow(clippy::too_many_arguments)]
+fn assert_circle_view(
+    f: &Fixture,
+    id: u32,
+    creator: &Address,
+    status: CircleStatus,
+    started_at: u64,
+    current_cycle: u32,
+    slashed_total: i128,
+    ended_at: u64,
+) {
+    let c = f.client.get_circle(&id);
+    assert_eq!(c.creator, *creator);
+    assert_eq!(c.token, f.token.address);
+    assert_eq!(c.contribution, CONTRIB);
+    assert_eq!(c.deposit, DEPOSIT);
+    assert_eq!(c.size, 3);
+    assert_eq!(c.period_secs, PERIOD);
+    assert_eq!(c.status, status);
+    assert_eq!(c.started_at, started_at);
+    assert_eq!(c.current_cycle, current_cycle);
+    assert_eq!(c.slashed_total, slashed_total);
+    assert_eq!(c.ended_at, ended_at);
+}
+
+fn member_state(deposit_remaining: i128, received: bool, defaulted: bool) -> MemberState {
+    MemberState {
+        deposit_remaining,
+        received,
+        defaulted,
+    }
+}
+
+#[test]
+fn views_match_state_at_every_lifecycle_stage() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let t0 = 5_000;
+    f.env.ledger().with_mut(|l| l.timestamp = t0);
+
+    // Create: Open, only the creator listed, unjoined addresses unknown.
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    assert_circle_view(&f, id, a, CircleStatus::Open, 0, 0, 0, 0);
+    assert_eq!(
+        f.client.get_members(&id),
+        soroban_sdk::vec![&f.env, a.clone()]
+    );
+    assert_eq!(
+        f.client.get_member(&id, a),
+        member_state(DEPOSIT, false, false)
+    );
+    for m in [b, c] {
+        assert_eq!(
+            f.client.try_get_member(&id, m),
+            Err(Ok(Error::NotMember.into()))
+        );
+    }
+
+    // Join below size: still Open and not started.
+    f.env.ledger().with_mut(|l| l.timestamp = t0 + 10);
+    f.client.join(&id, b);
+    assert_circle_view(&f, id, a, CircleStatus::Open, 0, 0, 0, 0);
+    assert_eq!(
+        f.client.get_members(&id),
+        soroban_sdk::vec![&f.env, a.clone(), b.clone()]
+    );
+    for m in [a, b] {
+        assert_eq!(
+            f.client.get_member(&id, m),
+            member_state(DEPOSIT, false, false)
+        );
+    }
+    assert_eq!(
+        f.client.try_get_member(&id, c),
+        Err(Ok(Error::NotMember.into()))
+    );
+
+    // Activation: the last join flips the circle to Active and stamps the start.
+    let started = t0 + 20;
+    f.env.ledger().with_mut(|l| l.timestamp = started);
+    f.client.join(&id, c);
+    let all = soroban_sdk::vec![&f.env, a.clone(), b.clone(), c.clone()];
+    assert_circle_view(&f, id, a, CircleStatus::Active, started, 0, 0, 0);
+    assert_eq!(f.client.get_members(&id), all);
+    for m in f.members.iter() {
+        assert_eq!(
+            f.client.get_member(&id, m),
+            member_state(DEPOSIT, false, false)
+        );
+    }
+
+    // Contribute: payments are tracked per cycle outside these views, so
+    // nothing they return changes.
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    assert_circle_view(&f, id, a, CircleStatus::Active, started, 0, 0, 0);
+    assert_eq!(f.client.get_members(&id), all);
+    for m in f.members.iter() {
+        assert_eq!(
+            f.client.get_member(&id, m),
+            member_state(DEPOSIT, false, false)
+        );
+    }
+
+    // Settle cycle 0 at the deadline: c missed and is slashed; a receives.
+    advance_past_deadline(&f, id);
+    f.client.settle_cycle(&id);
+    assert_circle_view(&f, id, a, CircleStatus::Active, started, 1, CONTRIB, 0);
+    assert_eq!(f.client.get_members(&id), all);
+    assert_eq!(
+        f.client.get_member(&id, a),
+        member_state(DEPOSIT, true, false)
+    );
+    assert_eq!(
+        f.client.get_member(&id, b),
+        member_state(DEPOSIT, false, false)
+    );
+    assert_eq!(
+        f.client.get_member(&id, c),
+        member_state(DEPOSIT - CONTRIB, false, false)
+    );
+
+    // Settle cycle 1 early, everyone paid: b receives.
+    for m in f.members.iter() {
+        f.client.contribute(&id, m);
+    }
+    f.client.settle_cycle(&id);
+    assert_circle_view(&f, id, a, CircleStatus::Active, started, 2, CONTRIB, 0);
+    assert_eq!(f.client.get_members(&id), all);
+    assert_eq!(
+        f.client.get_member(&id, a),
+        member_state(DEPOSIT, true, false)
+    );
+    assert_eq!(
+        f.client.get_member(&id, b),
+        member_state(DEPOSIT, true, false)
+    );
+    assert_eq!(
+        f.client.get_member(&id, c),
+        member_state(DEPOSIT - CONTRIB, false, false)
+    );
+
+    // Complete: c receives the last pot, deposits are returned, the cycle
+    // counter stays on the final cycle and the end is stamped.
+    let ended = f.client.cycle_deadline(&id) - 1;
+    f.env.ledger().with_mut(|l| l.timestamp = ended);
+    for m in f.members.iter() {
+        f.client.contribute(&id, m);
+    }
+    f.client.settle_cycle(&id);
+    assert_circle_view(
+        &f,
+        id,
+        a,
+        CircleStatus::Completed,
+        started,
+        2,
+        CONTRIB,
+        ended,
+    );
+    assert_eq!(f.client.get_members(&id), all);
+    for m in f.members.iter() {
+        assert_eq!(f.client.get_member(&id, m), member_state(0, true, false));
+    }
+    assert_eq!(f.token.balance(&f.client.address), 0);
+}
+
+// ---- Permissionless settlement --------------------------------------------
+
+#[test]
+fn a_third_party_can_settle_a_due_cycle() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    // A fresh address: not a member, holds nothing, and is never given an
+    // authorisation of any kind.
+    let stranger = Address::generate(&f.env);
+    assert!(!f.client.get_members(&id).contains(&stranger));
+    assert_eq!(f.token.balance(&stranger), 0);
+
+    // Settles with auth enforcement on and no auths mocked for anyone, then
+    // confirms no signature was consumed.
+    let crank = |f: &Fixture| {
+        f.env.set_auths(&[]);
+        f.client.settle_cycle(&id);
+        assert_eq!(f.env.auths(), std::vec![]);
+        f.env.mock_all_auths();
+    };
+
+    // Enforcement really is on once mocks are cleared: a member action
+    // without a signature fails.
+    f.env.set_auths(&[]);
+    assert!(f.client.try_contribute(&id, a).is_err());
+    f.env.mock_all_auths();
+
+    // Cycle 0, settled early because everyone paid: a receives.
+    for m in f.members.iter() {
+        f.client.contribute(&id, m);
+    }
+    crank(&f);
+    assert!(f.client.get_member(&id, a).received);
+    assert_eq!(f.client.get_circle(&id).current_cycle, 1);
+
+    // Cycle 1, settled after the deadline: c is slashed, b receives.
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    advance_past_deadline(&f, id);
+    crank(&f);
+    assert!(f.client.get_member(&id, b).received);
+    assert_eq!(
+        f.client.get_member(&id, c).deposit_remaining,
+        DEPOSIT - CONTRIB
+    );
+
+    // Cycle 2, settled after the deadline: c defaults (reported to
+    // reputation), the payers are refunded and the circle completes — the
+    // cross-contract reports and transfers need no outside signer either.
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    advance_past_deadline(&f, id);
+    crank(&f);
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
+    assert!(f.client.get_member(&id, c).defaulted);
+    assert_eq!(f.rep.get_reputation(c).defaulted, 1);
+    assert_eq!(f.rep.get_reputation(a).completed, 1);
+    assert_eq!(f.rep.get_reputation(b).completed, 1);
+    assert_eq!(f.token.balance(a), 1_125);
+    assert_eq!(f.token.balance(b), 1_125);
+    assert_eq!(f.token.balance(c), 750);
+    assert_eq!(f.token.balance(&f.client.address), 0);
+
+    // The stranger gained nothing and was never recorded anywhere.
+    assert_eq!(f.token.balance(&stranger), 0);
+    assert!(!f.client.get_members(&id).contains(&stranger));
+    assert_eq!(
+        f.client.try_get_member(&id, &stranger),
+        Err(Ok(Error::NotMember.into()))
+    );
+    assert_eq!(f.rep.get_reputation(&stranger).completed, 0);
+    assert_eq!(f.rep.get_reputation(&stranger).defaulted, 0);
 }
