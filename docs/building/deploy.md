@@ -38,6 +38,35 @@ member defaulted or a circle completed. The wiring is not optional.
 ==========================================================
 ```
 
+The same values are written to `deployments/<network>.json` (for example
+`deployments/testnet.json`), replacing the previous file for that network:
+
+```json
+{
+  "network": "testnet",
+  "circle_contract_id": "C...",
+  "reputation_contract_id": "C...",
+  "admin": "G...",
+  "circle_wasm_hash": "<sha256 of circle.wasm>",
+  "reputation_wasm_hash": "<sha256 of reputation.wasm>",
+  "deployed_at": "2026-01-01T00:00:00Z"
+}
+```
+
+The file is only written after the final wiring step succeeds, and it is
+renamed into place, so a failed run leaves the previous record untouched. The
+wasm hashes are the sha256 of the uploaded bytes, the same hash Stellar uses
+for a contract's code. For a contract passed in to resume a run (below), the
+script fetches the wasm the network actually runs and hashes that instead; if
+the fetch fails it records `null`. Set `DEPLOYMENTS_DIR` to write somewhere
+other than `deployments/`.
+
+Commit the file for a shared network such as testnet, so the ids in it are
+the source for the README and the app. `scripts/verify-deployment.sh` reads
+the ids from `deployments/<network>.json` when `CIRCLE_CONTRACT_ID` and
+`REPUTATION_CONTRACT_ID` are not set. Records for the throwaway `local`
+network are ignored by git.
+
 Put the two contract ids into the app repo's configuration —
 `apps/web/.env.local` and `indexer/.env` — as documented in the
 [app configuration guide](https://github.com/OGRoute/openajo-app/blob/main/docs/getting-started/configuration.md).

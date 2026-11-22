@@ -21,6 +21,9 @@ here without a version bump.
 
 ### Added
 
+- `scripts/deploy.sh` writes `deployments/<network>.json` with both contract
+  ids, the admin and both wasm hashes once a deployment succeeds, and
+  `scripts/verify-deployment.sh` reads the ids from it.
 - Dev container (`.devcontainer/`) with Rust 1.100.0, the `wasm32v1-none`
   target, `rustfmt`, `clippy` and stellar CLI v28.1.0, for amd64 and arm64.
 - `circle` tests asserting the exact signer and invocation tree (`env.auths()`)

@@ -9,12 +9,32 @@
 #   STELLAR_NETWORK         network name (default: testnet)
 #   CIRCLE_CONTRACT_ID      override the circle id
 #   REPUTATION_CONTRACT_ID  override the reputation id
+#   DEPLOYMENTS_DIR         where deploy.sh recorded deployments (default: deployments)
+#
+# The ids come from the environment first, then from the
+# deployments/<network>.json file deploy.sh writes, then from the testnet
+# deployment listed in README.md.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 NET="${STELLAR_NETWORK:-testnet}"
-CIRCLE_ID="${CIRCLE_CONTRACT_ID:-CA6NVGUC5LOZPOR3B266YXCA2TKXF4SH3362S4HRS5RQU53IDIM5F7FU}"
-REP_ID="${REPUTATION_CONTRACT_ID:-CD465NGKMGF2E6RGGL5DDMG3RZZFDINUR755FH3XRUZLMSQHTEBJWFD6}"
+DEPLOYMENT_FILE="${DEPLOYMENTS_DIR:-deployments}/$NET.json"
+
+# deploy.sh writes one `"key": "value"` pair per line, so no JSON parser is needed.
+recorded() { # key
+  [ -f "$DEPLOYMENT_FILE" ] || return 0
+  sed -n "s/^ *\"$1\": *\"\([^\"]*\)\".*/\1/p" "$DEPLOYMENT_FILE" | head -n 1
+}
+
+FILE_CIRCLE_ID=$(recorded circle_contract_id)
+FILE_REP_ID=$(recorded reputation_contract_id)
+if { [ -z "${CIRCLE_CONTRACT_ID:-}" ] && [ -n "$FILE_CIRCLE_ID" ]; } ||
+  { [ -z "${REPUTATION_CONTRACT_ID:-}" ] && [ -n "$FILE_REP_ID" ]; }; then
+  echo "reading deployed ids from $DEPLOYMENT_FILE"
+fi
+
+CIRCLE_ID="${CIRCLE_CONTRACT_ID:-${FILE_CIRCLE_ID:-CA6NVGUC5LOZPOR3B266YXCA2TKXF4SH3362S4HRS5RQU53IDIM5F7FU}}"
+REP_ID="${REPUTATION_CONTRACT_ID:-${FILE_REP_ID:-CD465NGKMGF2E6RGGL5DDMG3RZZFDINUR755FH3XRUZLMSQHTEBJWFD6}}"
 
 command -v stellar >/dev/null || {
   echo "stellar CLI not found: https://developers.stellar.org/docs/tools/developer-tools/cli" >&2
