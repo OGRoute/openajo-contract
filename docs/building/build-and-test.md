@@ -14,6 +14,24 @@ channel = "stable"
 targets = ["wasm32v1-none"]
 ```
 
+### Dev container
+
+Instead of installing both locally, open the repository in the dev container
+(`.devcontainer/`): VS Code's **Dev Containers: Reopen in Container**, a GitHub
+Codespace, or `devcontainer up --workspace-folder .` with the Dev Container CLI.
+It runs on Linux, macOS and Windows hosts with Docker, natively on amd64 and
+arm64, and comes with:
+
+| Tool | Version |
+| --- | --- |
+| Rust | 1.100.0 (`RUSTUP_TOOLCHAIN`), with `wasm32v1-none`, `rustfmt` and `clippy` |
+| Stellar CLI | v28.1.0, the CI version, checked against the release sha256 |
+
+`cargo test`, `cargo clippy --all-targets -- -D warnings` and
+`stellar contract build` work in it as soon as it is created. It is a
+development environment: the reproducible build below is still what verifies a
+deployed wasm.
+
 ## Test
 
 ```bash

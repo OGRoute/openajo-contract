@@ -21,6 +21,8 @@ here without a version bump.
 
 ### Added
 
+- Dev container (`.devcontainer/`) with Rust 1.100.0, the `wasm32v1-none`
+  target, `rustfmt`, `clippy` and stellar CLI v28.1.0, for amd64 and arm64.
 - `circle` tests asserting the exact signer and invocation tree (`env.auths()`)
   for `create_circle`, `join`, `leave`, `cancel` and `contribute`, and that
   `settle_cycle` consumes no authorisation.
