@@ -29,7 +29,7 @@ Requires `creator` auth. Reverts `BadParams` unless:
 | `contribution` | `> 0`, raw token units |
 | `deposit` | `>= 0` (may be `0`; see [deposits](../design/deposits-and-default.md)) |
 | `size` | `>= 2` |
-| `period_secs` | `>= 3600` (one hour) |
+| `period_secs` | `>= MIN_PERIOD_SECS` (`3600`, one hour) |
 
 `token` is the SAC address of the asset the circle runs in.
 
@@ -147,7 +147,7 @@ struct Circle {
     contribution: i128,    // raw units, > 0
     deposit: i128,         // raw units, >= 0
     size: u32,             // >= 2
-    period_secs: u64,      // >= 3600
+    period_secs: u64,      // >= MIN_PERIOD_SECS (3600)
     status: CircleStatus,
     started_at: u64,       // 0 while Open
     current_cycle: u32,    // 0-based

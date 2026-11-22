@@ -50,7 +50,7 @@ pub struct Circle {
     pub deposit: i128,
     /// Number of members required to activate. >= 2.
     pub size: u32,
-    /// Seconds per cycle. >= 3600.
+    /// Seconds per cycle. >= [`MIN_PERIOD_SECS`](crate::MIN_PERIOD_SECS).
     pub period_secs: u64,
     pub status: CircleStatus,
     /// Ledger timestamp at activation; 0 while Open.

@@ -24,6 +24,13 @@ use soroban_sdk::{
 use ttl_helpers::{extend_instance, extend_persistent};
 use types::{Circle, CircleStatus, DataKey, GlobalConfig, MemberState};
 
+/// Shortest cycle a circle may run, in seconds (one hour).
+///
+/// `create_circle` reverts with `BadParams` when `period_secs` is below this.
+/// The settlement deadline of every cycle is `started_at + (cycle + 1) *
+/// period_secs`, so this is also the shortest time members get to contribute.
+pub const MIN_PERIOD_SECS: u64 = 3600;
+
 /// Minimal interface of the `reputation` contract (same workspace).
 #[contractclient(name = "ReputationClient")]
 pub trait ReputationIface {

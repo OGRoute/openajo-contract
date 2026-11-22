@@ -2,7 +2,9 @@
 
 extern crate std;
 
-use crate::{errors::Error, types::CircleStatus, CircleContract, CircleContractClient};
+use crate::{
+    errors::Error, types::CircleStatus, CircleContract, CircleContractClient, MIN_PERIOD_SECS,
+};
 use soroban_sdk::{
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Ledger},
     token::{StellarAssetClient, TokenClient},
@@ -480,8 +482,14 @@ fn create_size_one_panics() {
 fn create_short_period_panics() {
     let f = setup();
     let a = &f.members[0];
-    f.client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &3599);
+    f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &(MIN_PERIOD_SECS - 1),
+    );
 }
 
 #[test]
@@ -519,10 +527,15 @@ fn create_min_size_accepted() {
 fn create_min_period_accepted() {
     let f = setup();
     let a = &f.members[0];
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &3600);
-    assert_eq!(f.client.get_circle(&id).period_secs, 3600);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &MIN_PERIOD_SECS,
+    );
+    assert_eq!(f.client.get_circle(&id).period_secs, MIN_PERIOD_SECS);
 }
 
 #[test]

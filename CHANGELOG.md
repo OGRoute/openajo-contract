@@ -13,6 +13,12 @@ here without a version bump.
 
 ## [Unreleased]
 
+### Changed
+
+- `circle`: the one-hour minimum cycle length is the public constant
+  `MIN_PERIOD_SECS` instead of a literal in `create_circle`'s validation. The
+  value (`3600`) and the interface are unchanged.
+
 ### Added
 
 - `circle` tests asserting the exact signer and invocation tree (`env.auths()`)
