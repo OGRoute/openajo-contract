@@ -25,10 +25,12 @@ use ttl_helpers::{extend_instance, extend_persistent};
 use types::{Circle, CircleStatus, DataKey, GlobalConfig, MemberState};
 
 /// Minimal interface of the `reputation` contract (same workspace).
+/// `context` is this circle's id, recorded in the reputation event so an
+/// outcome can be traced back to the circle that produced it.
 #[contractclient(name = "ReputationClient")]
 pub trait ReputationIface {
-    fn report_completion(env: Env, reporter: Address, member: Address);
-    fn report_default(env: Env, reporter: Address, member: Address);
+    fn report_completion(env: Env, reporter: Address, member: Address, context: u64);
+    fn report_default(env: Env, reporter: Address, member: Address, context: u64);
 }
 
 #[contract]
@@ -44,13 +46,14 @@ impl CircleContract {
         env.storage().instance().set(
             &DataKey::Config,
             &GlobalConfig {
-                admin,
-                reputation,
+                admin: admin.clone(),
+                reputation: reputation.clone(),
                 open_circle_cap: u32::MAX,
             },
         );
         env.storage().instance().set(&DataKey::Count, &0u32);
         extend_instance(&env);
+        events::init(&env, &admin, &reputation);
     }
 
     /// Admin only: sets the cap on the number of `Open` circles a single creator

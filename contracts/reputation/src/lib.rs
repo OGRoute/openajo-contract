@@ -2,8 +2,14 @@
 //! OpenAjo `reputation` — permanent cross-circle history per address.
 //!
 //! Authorized reporter contracts (the `circle` contract) record completions
-//! and defaults. Anyone can read. Deposits price default within one circle;
-//! this contract is what makes repeat defaulting visible across circles.
+//! and defaults, each tagged with the reporting circle's id as `context`.
+//! Anyone can read. Deposits price default within one circle; this contract is
+//! what makes repeat defaulting visible across circles.
+//!
+//! Records use the long TTL window and every read refreshes it, but Soroban can
+//! still archive an entry nobody touches for ~175 days. Archived history is
+//! retained by the network, not deleted: a client restores the `Rep(member)`
+//! ledger entry before reading. See `docs/design/reputation.md`.
 
 mod errors;
 mod events;
@@ -11,7 +17,7 @@ mod types;
 
 use errors::Error;
 use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env};
-use ttl_helpers::{extend_instance, extend_persistent};
+use ttl_helpers::{extend_instance, extend_persistent, extend_persistent_long};
 use types::{DataKey, Reputation};
 
 #[contract]
@@ -26,6 +32,7 @@ impl ReputationContract {
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
         extend_instance(&env);
+        events::init(&env, &admin);
     }
 
     /// Admin only: allow or revoke a contract address as an outcome reporter.
@@ -39,59 +46,69 @@ impl ReputationContract {
         if stored != admin {
             panic_with_error!(&env, Error::NotAdmin);
         }
-        env.storage()
-            .instance()
-            .set(&DataKey::Reporter(reporter), &allowed);
-        extend_instance(&env);
+        let key = DataKey::Reporter(reporter);
+        env.storage().persistent().set(&key, &allowed);
+        extend_persistent(&env, &key);
     }
 
     /// Authorized reporters only: record a cleanly completed circle.
-    pub fn report_completion(env: Env, reporter: Address, member: Address) {
+    /// `context` is the reporting circle's id (0 when a reporter has none).
+    pub fn report_completion(env: Env, reporter: Address, member: Address, context: u64) {
         Self::authorize_reporter(&env, &reporter);
         let mut rep = Self::get_reputation(env.clone(), member.clone());
         rep.completed += 1;
         Self::write_rep(&env, &member, &rep);
-        events::completion(&env, &member);
+        events::completion(&env, &member, context);
     }
 
     /// Authorized reporters only: record a default.
-    pub fn report_default(env: Env, reporter: Address, member: Address) {
+    /// `context` is the reporting circle's id (0 when a reporter has none).
+    pub fn report_default(env: Env, reporter: Address, member: Address, context: u64) {
         Self::authorize_reporter(&env, &reporter);
         let mut rep = Self::get_reputation(env.clone(), member.clone());
         rep.defaulted += 1;
         Self::write_rep(&env, &member, &rep);
-        events::defaulted(&env, &member);
+        events::defaulted(&env, &member, context);
     }
 
     /// Anyone: a member's cross-circle history; zeroes if unknown.
+    ///
+    /// A read of an existing record also refreshes its long TTL, so active
+    /// readers keep history live. A read-only simulation does not persist that
+    /// refresh (it is not a transaction); if the entry has already been
+    /// archived, the caller must restore it first — see the design docs.
     pub fn get_reputation(env: Env, member: Address) -> Reputation {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Rep(member))
-            .unwrap_or(Reputation {
+        let key = DataKey::Rep(member);
+        match env.storage().persistent().get(&key) {
+            Some(rep) => {
+                extend_persistent_long(&env, &key);
+                rep
+            }
+            None => Reputation {
                 completed: 0,
                 defaulted: 0,
-            })
+            },
+        }
     }
 
     /// Invoker auth (the reporter contract authorizes its own call) plus the
     /// on-storage allow-list — both are required, always.
     fn authorize_reporter(env: &Env, reporter: &Address) {
         reporter.require_auth();
-        let allowed: bool = env
-            .storage()
-            .instance()
-            .get(&DataKey::Reporter(reporter.clone()))
-            .unwrap_or(false);
+        let key = DataKey::Reporter(reporter.clone());
+        let allowed: bool = env.storage().persistent().get(&key).unwrap_or(false);
         if !allowed {
             panic_with_error!(env, Error::NotReporter);
         }
+        // An allow-listed reporter that keeps reporting stays live; a revoked
+        // or unused flag is allowed to expire.
+        extend_persistent(env, &key);
     }
 
     fn write_rep(env: &Env, member: &Address, rep: &Reputation) {
         let key = DataKey::Rep(member.clone());
         env.storage().persistent().set(&key, rep);
-        extend_persistent(env, &key);
+        extend_persistent_long(env, &key);
     }
 }
 
