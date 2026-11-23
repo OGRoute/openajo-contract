@@ -21,11 +21,19 @@ trap "stellar container stop $NET >/dev/null 2>&1 || true" EXIT
 
 stellar container start "$NET" >/dev/null
 echo "waiting for the local network..."
+# The proxy on :8000 answers "/" with 200 well before friendbot and RPC are
+# up, so only a successful funding counts as ready. Funding the admin here
+# also means deploy.sh finds it already funded.
+stellar keys generate "$ADMIN_ID" --network "$NET" >/dev/null
+ready=0
 for _ in $(seq 1 60); do
-  curl -sf http://localhost:8000/friendbot?addr=GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7 >/dev/null 2>&1 && break
-  curl -sf http://localhost:8000/ >/dev/null 2>&1 && sleep 5 && break
+  if stellar keys fund "$ADMIN_ID" --network "$NET" >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
   sleep 5
 done
+[ "$ready" = 1 ] || { echo "FAIL: local network friendbot never became ready"; exit 1; }
 
 export STELLAR_IDENTITY="$ADMIN_ID" STELLAR_NETWORK="$NET"
 OUT=$(./scripts/deploy.sh)
