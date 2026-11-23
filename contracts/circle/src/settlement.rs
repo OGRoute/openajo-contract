@@ -66,7 +66,7 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
             if slash < circle.contribution {
                 st.defaulted = true;
                 crate::events::defaulted(&env, circle_id, &m);
-                rep.report_default(&this, &m);
+                rep.report_default(&this, &m, &(circle_id as u64));
             }
             crate::storage::write_member(&env, circle_id, &m, &st);
         }
@@ -145,7 +145,7 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
                     st.deposit_remaining = 0;
                     crate::storage::write_member(&env, circle_id, &m, &st);
                 }
-                rep.report_completion(&this, &m);
+                rep.report_completion(&this, &m, &(circle_id as u64));
             }
         }
         crate::events::complete(&env, circle_id);

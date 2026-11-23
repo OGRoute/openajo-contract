@@ -13,8 +13,22 @@ here without a version bump.
 
 ## [Unreleased]
 
+### Changed
+
+- `circle`: the one-hour minimum cycle length is the public constant
+  `MIN_PERIOD_SECS` instead of a literal in `create_circle`'s validation. The
+  value (`3600`) and the interface are unchanged.
+- `circle`: `leave` drops the member with `first_index_of` and `remove`
+  instead of rebuilding the members vector. Join order, and so payout order, is
+  unchanged.
+
 ### Added
 
+- `scripts/deploy.sh` writes `deployments/<network>.json` with both contract
+  ids, the admin and both wasm hashes once a deployment succeeds, and
+  `scripts/verify-deployment.sh` reads the ids from it.
+- Dev container (`.devcontainer/`) with Rust 1.100.0, the `wasm32v1-none`
+  target, `rustfmt`, `clippy` and stellar CLI v28.1.0, for amd64 and arm64.
 - `circle` tests asserting the exact signer and invocation tree (`env.auths()`)
   for `create_circle`, `join`, `leave`, `cancel` and `contribute`, and that
   `settle_cycle` consumes no authorisation.
@@ -22,6 +36,20 @@ here without a version bump.
   the deadline, settles at deadline + 1.
 - `circle` lifecycle tests for a minimum-size (2-member) circle and a
   zero-deposit circle where a missed contribution defaults immediately.
+
+### Changed
+
+- **Breaking (0.1.0 → 0.2.0, both crates).** Reputation report functions now take
+  a `context: u64` circle id and their event data changed from a bare member
+  address to `(member, context)`; both contracts emit a new `init` event.
+  Coordinated with the `openajo-app` indexer/SDK.
+- Reputation records use a long (~175 day) TTL and `get_reputation` refreshes it
+  on read, so history survives long idle periods; archival/restoration is
+  documented for the app (see `docs/design/reputation.md`).
+- Reporter allow-list flags moved from instance to persistent storage with TTL
+  extension, keeping a growing allow-list off every invocation. Existing
+  deployments must re-run `set_reporter` after the upgrade (documented in
+  `docs/reference/reputation.md`).
 
 ## [0.1.0] - 2026-10-06
 

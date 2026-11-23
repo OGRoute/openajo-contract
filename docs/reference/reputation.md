@@ -18,8 +18,8 @@ allow-list check below that keeps unauthorized reporters out.
 | --- | --- | --- |
 | `initialize(admin)` | nobody — open to anyone | none |
 | `set_reporter(admin, reporter, allowed)` | `admin` | `admin` must equal the stored admin, else `NotAdmin` |
-| `report_completion(reporter, member)` | `reporter` | `reporter` must be allow-listed, else `NotReporter` |
-| `report_default(reporter, member)` | `reporter` | same allow-list check |
+| `report_completion(reporter, member, context)` | `reporter` | `reporter` must be allow-listed, else `NotReporter` |
+| `report_default(reporter, member, context)` | `reporter` | same allow-list check |
 | `get_reputation(member)` | none — read-only simulation | none |
 
 ## Admin
@@ -39,16 +39,19 @@ reporter. It can be called again at any point to revoke that authorization.
 
 ## Reporting (allow-listed reporters only)
 
-### `report_completion(reporter, member)`
+### `report_completion(reporter, member, context)`
 
 Increments `member.completed`. Requires `reporter` auth, and `reporter` must be
-allow-listed — otherwise `NotReporter`.
+allow-listed — otherwise `NotReporter`. `context` is the reporting circle's id
+(`0` when a reporter has no circle context); it is included in the emitted event
+so the outcome can be traced to a circle.
 
 Called by `circle` for each non-defaulted member when a circle completes.
 
-### `report_default(reporter, member)`
+### `report_default(reporter, member, context)`
 
-Increments `member.defaulted`. Same authorization as above.
+Increments `member.defaulted`. Same authorization and `context` semantics as
+above.
 
 Called by `circle` the moment a member's deposit cannot cover a missed
 contribution.
@@ -66,6 +69,22 @@ struct Reputation {
 
 An address with no history returns `{ completed: 0, defaulted: 0 }` rather than
 reverting, so callers never special-case an unseen member.
+
+Reading an existing record also refreshes its long TTL. See
+[Permanence, TTL and restoration](../design/reputation.md#permanence-ttl-and-restoration)
+for the long window, why a read-only simulation does not persist the refresh, and
+how a client restores an archived `Rep(member)` entry before reading.
+
+## Storage and upgrading an existing deployment
+
+`Admin` stays in instance storage. Reporter flags moved from instance to
+**persistent** storage, and `Rep(Address)` uses the long TTL window. Old
+instance-storage reporter entries are not migrated automatically: after upgrading
+a deployed contract, the admin must re-run `set_reporter(admin, reporter, true)`
+for each authorized reporter (normally just the `circle` contract) before any
+settlement can report outcomes. `scripts/deploy.sh` already does this on a fresh
+deployment and can be re-run with the existing contract ids to perform the
+wiring after an upgrade.
 
 ## Authorization, precisely
 

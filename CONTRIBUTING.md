@@ -13,6 +13,10 @@ cargo test
 Building the wasm needs the **`stellar` CLI v25.2.0+** as well: soroban-sdk 28
 refuses to build a contract through plain `cargo build`.
 
+Or skip the setup: the dev container in `.devcontainer/` has the pinned Rust
+toolchain, the `wasm32v1-none` target and the `stellar` CLI already installed
+(see [Dev container](docs/building/build-and-test.md#dev-container)).
+
 If `cargo test` fails compiling `soroban-env-host` with an `ed25519-dalek`
 trait error, pin it and commit the lockfile:
 

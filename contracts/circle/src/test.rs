@@ -6,12 +6,13 @@ use crate::test_utils::params_full;
 use crate::{
     errors::Error,
     types::{CircleStatus, MemberState},
-    CircleContract, CircleContractClient,
+    CircleContract, CircleContractClient, MIN_PERIOD_SECS,
 };
 use soroban_sdk::{
-    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Ledger},
+    symbol_short,
+    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events, Ledger},
     token::{StellarAssetClient, TokenClient},
-    Address, Env, IntoVal, Symbol, Val, Vec,
+    vec, Address, Env, IntoVal, Symbol, Val, Vec,
 };
 
 pub(crate) const CONTRIB: i128 = 100;
@@ -496,8 +497,10 @@ fn create_size_one_panics() {
 fn create_short_period_panics() {
     let f = setup();
     let a = &f.members[0];
-    f.client
-        .create_circle(a, &params_full(&f.token.address, CONTRIB, DEPOSIT, 3, 3599));
+    f.client.create_circle(
+        a,
+        &params_full(&f.token.address, CONTRIB, DEPOSIT, 3, MIN_PERIOD_SECS - 1),
+    );
 }
 
 #[test]
@@ -536,10 +539,11 @@ fn create_min_size_accepted() {
 fn create_min_period_accepted() {
     let f = setup();
     let a = &f.members[0];
-    let id = f
-        .client
-        .create_circle(a, &params_full(&f.token.address, CONTRIB, DEPOSIT, 3, 3600));
-    assert_eq!(f.client.get_circle(&id).period_secs, 3600);
+    let id = f.client.create_circle(
+        a,
+        &params_full(&f.token.address, CONTRIB, DEPOSIT, 3, MIN_PERIOD_SECS),
+    );
+    assert_eq!(f.client.get_circle(&id).period_secs, MIN_PERIOD_SECS);
 }
 
 #[test]
@@ -2037,4 +2041,33 @@ fn a_third_party_can_settle_a_due_cycle() {
     );
     assert_eq!(f.rep.get_reputation(&stranger).completed, 0);
     assert_eq!(f.rep.get_reputation(&stranger).defaulted, 0);
+}
+
+// ---- Init event (#74) -----------------------------------------------------
+
+#[test]
+fn initialize_emits_init_event_with_admin_and_reputation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let reputation = Address::generate(&env);
+    let id = env.register(CircleContract, ());
+    let client = CircleContractClient::new(&env, &id);
+
+    client.initialize(&admin, &reputation);
+
+    let topics: Vec<Val> = vec![
+        &env,
+        symbol_short!("circle").into_val(&env),
+        symbol_short!("init").into_val(&env),
+    ];
+    let expected = vec![
+        &env,
+        (
+            id.clone(),
+            topics,
+            (admin.clone(), reputation.clone()).into_val(&env),
+        ),
+    ];
+    assert_eq!(env.events().all(), expected);
 }

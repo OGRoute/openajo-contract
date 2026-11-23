@@ -4,8 +4,10 @@ use soroban_sdk::{panic_with_error, Env};
 
 use crate::errors::Error;
 use crate::types::{Circle, CircleStatus};
+use crate::MIN_PERIOD_SECS;
 
-/// Validate circle creation parameters.
+/// Validate circle creation parameters; `period_secs` must be at least
+/// [`MIN_PERIOD_SECS`].
 pub fn validate_create_params(
     contribution: i128,
     deposit: i128,
@@ -13,7 +15,7 @@ pub fn validate_create_params(
     period_secs: u64,
     env: &Env,
 ) {
-    if contribution <= 0 || deposit < 0 || size < 2 || period_secs < 3600 {
+    if contribution <= 0 || deposit < 0 || size < 2 || period_secs < MIN_PERIOD_SECS {
         panic_with_error!(env, Error::BadParams);
     }
 }

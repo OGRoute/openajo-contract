@@ -10,7 +10,8 @@ the acting address, except `settle_cycle`, which is permissionless by design.
 ### `initialize(admin, reputation)`
 
 Callable once, by anyone. Stores the admin address and the `reputation` contract
-id this instance reports to. Calling it twice reverts with `AlreadyInitialized`.
+id this instance reports to, and emits a `circle`/`init` event with both. Calling
+it twice reverts with `AlreadyInitialized`.
 
 Deploy wiring calls this immediately after deployment — see
 [Deploy to testnet](../building/deploy.md).
@@ -31,7 +32,7 @@ list. Requires `creator` auth. Reverts `BadParams` unless:
 | `contribution` | `> 0`, raw token units |
 | `deposit` | `>= 0` (may be `0`; see [deposits](../design/deposits-and-default.md)) |
 | `size` | `>= 2` |
-| `period_secs` | `>= 3600` (one hour) |
+| `period_secs` | `>= MIN_PERIOD_SECS` (`3600`, one hour) |
 
 `token` is the SAC address of the asset the circle runs in.
 
@@ -83,7 +84,8 @@ Reverts: `BadStatus` (not `Active`), `NotDue` (cycle not yet due).
 
 Takes no caller address and performs no auth on the invoker — whoever submits it
 pays the fee and nothing more. When it reports outcomes to `reputation` it signs
-as the circle contract itself (see [reputation](reference/reputation.md)).
+as the circle contract itself and passes the circle id as the report `context`
+(see [reputation](reputation.md)).
 
 ### `set_open_circle_cap(cap)`
 
@@ -149,7 +151,7 @@ struct Circle {
     contribution: i128,    // raw units, > 0
     deposit: i128,         // raw units, >= 0
     size: u32,             // >= 2
-    period_secs: u64,      // >= 3600
+    period_secs: u64,      // >= MIN_PERIOD_SECS (3600)
     status: CircleStatus,
     started_at: u64,       // 0 while Open
     current_cycle: u32,    // 0-based

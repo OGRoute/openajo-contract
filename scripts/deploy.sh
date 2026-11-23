@@ -3,6 +3,10 @@
 #   reputation -> circle -> set_reporter wiring.
 # Usage: ./scripts/deploy.sh   (override IDENT/NETWORK via env)
 #
+# On success the ids, the admin and the wasm hashes are written to
+# deployments/<network>.json (DEPLOYMENTS_DIR overrides the directory), which
+# verify-deployment.sh reads.
+#
 # Resuming a partial run: if a previous run already deployed a contract, pass
 # its id back through the environment (REPUTATION_CONTRACT_ID /
 # CIRCLE_CONTRACT_ID) and that step is skipped instead of deploying a duplicate.
@@ -12,6 +16,7 @@ cd "$(dirname "$0")/.."
 IDENT="${STELLAR_IDENTITY:-openajo}"
 NET="${STELLAR_NETWORK:-testnet}"
 CONFIRM_MAINNET="${CONFIRM_MAINNET:-0}"
+DEPLOYMENTS_DIR="${DEPLOYMENTS_DIR:-deployments}"
 
 # Existing contract ids (optional). When provided, the corresponding deploy +
 # initialize step is skipped, so a rerun after a partial failure reuses the
@@ -94,9 +99,13 @@ echo "[2/5] build wasm"
 # soroban-sdk 28 requires building through the CLI (25.2.0+), not `cargo build`.
 stellar contract build
 
+REP_DEPLOYED=0
+CIRCLE_DEPLOYED=0
+
 if [ -n "$REP_ID" ]; then
   echo "[3/5] reputation already deployed ($REP_ID) — skipping"
 else
+  REP_DEPLOYED=1
   echo "[3/5] deploy reputation"
   REP_ID=$(stellar contract deploy \
     --wasm target/wasm32v1-none/release/reputation.wasm \
@@ -108,6 +117,7 @@ fi
 if [ -n "$CIRCLE_ID" ]; then
   echo "[4/5] circle already deployed ($CIRCLE_ID) — skipping"
 else
+  CIRCLE_DEPLOYED=1
   echo "[4/5] deploy circle"
   CIRCLE_ID=$(stellar contract deploy \
     --wasm target/wasm32v1-none/release/circle.wasm \
@@ -120,6 +130,55 @@ echo "[5/5] authorize circle as reputation reporter"
 stellar contract invoke --id "$REP_ID" --source "$IDENT" --network "$NET" --send=yes \
   -- set_reporter --admin "$ADMIN" --reporter "$CIRCLE_ID" --allowed true
 
+# ---- Record the deployment --------------------------------------------------
+sha256() {
+  if command -v sha256sum >/dev/null; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+# The wasm hash of a contract this run deployed is the hash of the build it
+# uploaded. A contract passed in to resume a run may run an older build, so its
+# wasm is fetched from the network instead. Prints "null" if that fails.
+wasm_hash() { # name id deployed-by-this-run
+  local name=$1 id=$2 fresh=$3 fetched
+  if [ "$fresh" = 1 ]; then
+    printf '"%s"' "$(sha256 "target/wasm32v1-none/release/$name.wasm")"
+    return
+  fi
+  fetched=$(mktemp)
+  if stellar contract fetch --id "$id" --network "$NET" --out-file "$fetched" >/dev/null 2>&1; then
+    printf '"%s"' "$(sha256 "$fetched")"
+  else
+    echo "warning: could not fetch the $name wasm ($id); recording its hash as null" >&2
+    printf 'null'
+  fi
+  rm -f "$fetched"
+}
+
+REP_HASH=$(wasm_hash reputation "$REP_ID" "$REP_DEPLOYED")
+CIRCLE_HASH=$(wasm_hash circle "$CIRCLE_ID" "$CIRCLE_DEPLOYED")
+
+mkdir -p "$DEPLOYMENTS_DIR"
+DEPLOYMENT_FILE="$DEPLOYMENTS_DIR/$NET.json"
+# Written to a temporary file and renamed, so a reader never sees half a file.
+TMP_FILE=$(mktemp "$DEPLOYMENTS_DIR/.$NET.json.XXXXXX")
+cat >"$TMP_FILE" <<JSON
+{
+  "network": "$NET",
+  "circle_contract_id": "$CIRCLE_ID",
+  "reputation_contract_id": "$REP_ID",
+  "admin": "$ADMIN",
+  "circle_wasm_hash": $CIRCLE_HASH,
+  "reputation_wasm_hash": $REP_HASH,
+  "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+JSON
+chmod 644 "$TMP_FILE"
+mv "$TMP_FILE" "$DEPLOYMENT_FILE"
+
 cat <<DONE
 
 ==========================================================
@@ -127,5 +186,6 @@ cat <<DONE
    REPUTATION_CONTRACT_ID=$REP_ID
    CIRCLE_CONTRACT_ID=$CIRCLE_ID
    ADMIN=$ADMIN
+ Recorded in $DEPLOYMENT_FILE
 ==========================================================
 DONE

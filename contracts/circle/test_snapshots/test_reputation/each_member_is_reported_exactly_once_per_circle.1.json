@@ -2088,7 +2088,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 3024000
       },
       {
         "entry": {
@@ -2132,7 +2132,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 3024000
       },
       {
         "entry": {
@@ -2176,7 +2176,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 3024000
       },
       {
         "entry": {
@@ -2220,6 +2220,33 @@
           },
           "ext": "v0"
         },
+        "live_until": 3024000
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "Reporter"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "bool": true
+              }
+            }
+          },
+          "ext": "v0"
+        },
         "live_until": 518400
       },
       {
@@ -2247,21 +2274,6 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "Reporter"
-                          },
-                          {
-                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "bool": true
                       }
                     }
                   ]
