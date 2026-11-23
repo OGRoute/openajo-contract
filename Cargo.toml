@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["contracts/reputation", "contracts/circle"]
+members = ["contracts/ttl-helpers", "contracts/reputation", "contracts/circle"]
 
 [workspace.dependencies]
 soroban-sdk = "28"

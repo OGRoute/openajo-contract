@@ -1,3 +1,6 @@
 target/
 .stellar/
 *.optimized.wasm
+out/
+# deploy.sh records for the throwaway local network
+deployments/local.json

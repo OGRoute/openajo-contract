@@ -5,7 +5,7 @@ use soroban_sdk::{contracttype, Address};
 pub enum DataKey {
     /// Admin address — manages the reporter allow-list. Instance storage.
     Admin,
-    /// Contracts allowed to report outcomes. Instance storage.
+    /// Contracts allowed to report outcomes. Persistent storage.
     Reporter(Address),
     /// A member's permanent cross-circle history. Persistent storage.
     Rep(Address),
