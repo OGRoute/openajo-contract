@@ -14,6 +14,15 @@
 
 use soroban_sdk::{symbol_short, Address, Env};
 
+/// Emitted once when the contract is initialized, with the admin that took
+/// control and the reputation contract it reports to.
+pub fn init(env: &Env, admin: &Address, reputation: &Address) {
+    env.events().publish(
+        (symbol_short!("circle"), symbol_short!("init")),
+        (admin.clone(), reputation.clone()),
+    );
+}
+
 pub fn create(env: &Env, id: u32, creator: &Address) {
     env.events().publish(
         (symbol_short!("circle"), symbol_short!("create")),

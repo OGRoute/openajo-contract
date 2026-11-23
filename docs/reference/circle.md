@@ -10,7 +10,8 @@ the acting address, except `settle_cycle`, which is permissionless by design.
 ### `initialize(admin, reputation)`
 
 Callable once, by anyone. Stores the admin address and the `reputation` contract
-id this instance reports to. Calling it twice reverts with `AlreadyInitialized`.
+id this instance reports to, and emits a `circle`/`init` event with both. Calling
+it twice reverts with `AlreadyInitialized`.
 
 Deploy wiring calls this immediately after deployment — see
 [Deploy to testnet](../building/deploy.md).
@@ -81,7 +82,8 @@ Reverts: `BadStatus` (not `Active`), `NotDue` (cycle not yet due).
 
 Takes no caller address and performs no auth on the invoker — whoever submits it
 pays the fee and nothing more. When it reports outcomes to `reputation` it signs
-as the circle contract itself (see [reputation](reference/reputation.md)).
+as the circle contract itself and passes the circle id as the report `context`
+(see [reputation](reputation.md)).
 
 ### `set_open_circle_cap(cap)`
 

@@ -8,9 +8,10 @@ use crate::{
     CircleContract, CircleContractClient, MIN_PERIOD_SECS,
 };
 use soroban_sdk::{
-    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Ledger},
+    symbol_short,
+    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events, Ledger},
     token::{StellarAssetClient, TokenClient},
-    Address, Env, IntoVal, Symbol, Val, Vec,
+    vec, Address, Env, IntoVal, Symbol, Val, Vec,
 };
 
 pub(crate) const CONTRIB: i128 = 100;
@@ -2017,4 +2018,33 @@ fn a_third_party_can_settle_a_due_cycle() {
     );
     assert_eq!(f.rep.get_reputation(&stranger).completed, 0);
     assert_eq!(f.rep.get_reputation(&stranger).defaulted, 0);
+}
+
+// ---- Init event (#74) -----------------------------------------------------
+
+#[test]
+fn initialize_emits_init_event_with_admin_and_reputation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let reputation = Address::generate(&env);
+    let id = env.register(CircleContract, ());
+    let client = CircleContractClient::new(&env, &id);
+
+    client.initialize(&admin, &reputation);
+
+    let topics: Vec<Val> = vec![
+        &env,
+        symbol_short!("circle").into_val(&env),
+        symbol_short!("init").into_val(&env),
+    ];
+    let expected = vec![
+        &env,
+        (
+            id.clone(),
+            topics,
+            (admin.clone(), reputation.clone()).into_val(&env),
+        ),
+    ];
+    assert_eq!(env.events().all(), expected);
 }

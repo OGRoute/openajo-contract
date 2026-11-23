@@ -19,6 +19,7 @@ Topic namespace: `circle`.
 
 | Name | Data tuple | Emitted when |
 | --- | --- | --- |
+| `init` | `(admin: Address, reputation: Address)` | The contract is initialized |
 | `create` | `(id: u32, creator: Address)` | A circle is created |
 | `join` | `(id: u32, member: Address)` | A member joins |
 | `start` | `id: u32` | The circle activates (fills to `size`) |
@@ -36,10 +37,15 @@ they carry only the circle id. The others publish tuples.
 
 Topic namespace: `rep`.
 
-| Name | Data | Emitted when |
+| Name | Data tuple | Emitted when |
 | --- | --- | --- |
-| `complete` | `member: Address` | A completion is recorded |
-| `default` | `member: Address` | A default is recorded |
+| `init` | `admin: Address` (bare value) | The contract is initialized |
+| `complete` | `(member: Address, context: u64)` | A completion is recorded |
+| `default` | `(member: Address, context: u64)` | A default is recorded |
+
+`context` is the reporting circle's id (`0` when a reporter has no circle
+context). It lets the indexer attribute an outcome to a circle without changing
+the member's aggregate counters.
 
 ## How the indexer uses them
 

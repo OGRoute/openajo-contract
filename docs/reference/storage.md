@@ -36,27 +36,47 @@ has already been collected on the strength of it.
 ```rust
 enum DataKey {
     Admin,               // instance   — the allow-list manager
-    Reporter(Address),   // instance   — bool, is this contract a reporter
+    Reporter(Address),   // persistent — bool, is this contract a reporter
     Rep(Address),        // persistent — a member's permanent record
 }
 ```
 
 A member's `Rep` is persistent because its entire purpose is to outlive any single
-circle. The admin and the reporter list are instance data, needed on every write.
+circle. Reporter flags are persistent so a growing allow-list is not loaded on
+every invocation; the admin stays in instance storage, where it is needed on the
+admin calls. Each `set_reporter` write extends the reporter flag's TTL, and each
+accepted report refreshes the flag on read.
+
+> ⚠️ **Upgrading an existing deployment**
+>
+> Reporter flags previously lived in instance storage. Moving them to persistent
+> storage is not an automatic migration: the admin must call
+> `set_reporter(admin, reporter, true)` again for every reporter after the upgrade
+> (normally only `circle`) before settlement can report. See
+> [reputation](reputation.md#storage-and-upgrading-an-existing-deployment).
 
 ## TTL extension
 
 ```rust
-const TTL_THRESHOLD: u32 = 259_200;   // ~15 days at 5s ledgers
-const TTL_EXTEND:    u32 = 518_400;   // ~30 days
+const TTL_THRESHOLD:      u32 = 259_200;   // ~15 days at 5s ledgers
+const TTL_EXTEND:         u32 = 518_400;   // ~30 days
+const LONG_TTL_THRESHOLD: u32 = 2_592_000; // ~150 days
+const LONG_TTL_EXTEND:    u32 = 3_024_000; // ~175 days (under the network max)
 ```
 
 The pattern throughout: when a persistent (or instance) entry is touched and its
-remaining TTL has dropped below `TTL_THRESHOLD`, it is bumped back up to
-`TTL_EXTEND`. In plain terms — any entry used at least once a fortnight keeps
-itself alive with a month of headroom. An abandoned circle that no one touches
-will eventually let its entries expire, which is the correct outcome: the network
+remaining TTL has dropped below its threshold, it is bumped back up to its extend
+value. In plain terms — any entry used at least once a fortnight keeps itself
+alive with a month of headroom. An abandoned circle that no one touches will
+eventually let its entries expire, which is the correct outcome: the network
 should not store dead circles forever.
+
+Circle state uses the short window. Reputation records use the **long** window
+because they must outlive the activity that produced them, and `get_reputation`
+extends an existing record on read. A long TTL is still finite: an entry untouched
+for ~175 days is archived (not deleted) and must be restored by the client before
+reading. See
+[Permanence, TTL and restoration](../design/reputation.md#permanence-ttl-and-restoration).
 
 ## Rule for contributors
 
