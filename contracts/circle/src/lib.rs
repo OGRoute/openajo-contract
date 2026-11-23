@@ -186,7 +186,7 @@ impl CircleContract {
         let circle = storage::read_circle(&env, circle_id);
         validation::validate_circle_open(&circle, &env);
         validation::validate_not_creator(&circle, &member, &env);
-        let members = storage::read_members(&env, circle_id);
+        let mut members = storage::read_members(&env, circle_id);
         let state = storage::read_member(&env, circle_id, &member);
 
         if state.deposit_remaining > 0 {
@@ -196,13 +196,12 @@ impl CircleContract {
                 &state.deposit_remaining,
             );
         }
-        let mut remaining: Vec<Address> = vec![&env];
-        for m in members.iter() {
-            if m != member {
-                remaining.push_back(m);
-            }
+        // `read_member` above already rejects a non-member. `remove` shifts the
+        // later members down, so join order, which is payout order, is kept.
+        if let Some(index) = members.first_index_of(&member) {
+            members.remove(index);
         }
-        storage::write_members(&env, circle_id, &remaining);
+        storage::write_members(&env, circle_id, &members);
         env.storage()
             .persistent()
             .remove(&DataKey::Member(circle_id, member));

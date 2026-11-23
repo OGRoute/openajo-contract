@@ -18,6 +18,9 @@ here without a version bump.
 - `circle`: the one-hour minimum cycle length is the public constant
   `MIN_PERIOD_SECS` instead of a literal in `create_circle`'s validation. The
   value (`3600`) and the interface are unchanged.
+- `circle`: `leave` drops the member with `first_index_of` and `remove`
+  instead of rebuilding the members vector. Join order, and so payout order, is
+  unchanged.
 
 ### Added
 
