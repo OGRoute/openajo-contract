@@ -46,15 +46,38 @@ REP_ID="${REPUTATION_CONTRACT_ID:-${REP_ID:-}}"
 CIRCLE_ID="${CIRCLE_CONTRACT_ID:-${CIRCLE_ID:-}}"
 
 echo "[1/5] identity ($IDENT on $NET)"
-if [ "$NET" = "mainnet" ]; then
-  # friendbot is testnet-only: the identity must already be funded on mainnet.
-  stellar keys generate "$IDENT" --network "$NET" 2>/dev/null || true
-else
-  stellar keys generate "$IDENT" --network "$NET" --fund 2>/dev/null ||
-    stellar keys fund "$IDENT" --network "$NET" 2>/dev/null || true
+# A missing account still exits 0 here (with `"entries":[]`), so check for an
+# entry rather than the exit code.
+account_exists() {
+  stellar ledger entry fetch account --account "$IDENT" --network "$NET" 2>/dev/null |
+    grep -q '"val"'
+}
+# Creates the key if it does not exist yet; a no-op when it does.
+stellar keys generate "$IDENT" --network "$NET" >/dev/null 2>&1 || true
+if [ "$NET" != "mainnet" ]; then
+  # friendbot is testnet/local only. It can lag behind the network (a freshly
+  # started local container answers before friendbot is up) or fail
+  # transiently, so retry until the account exists instead of failing later
+  # with "Account not found". Funding an already-funded account is a no-op.
+  FUND_ATTEMPTS="${FUND_ATTEMPTS:-24}"
+  for attempt in $(seq 1 "$FUND_ATTEMPTS"); do
+    account_exists && break
+    stellar keys fund "$IDENT" --network "$NET" >/dev/null 2>&1 || true
+    account_exists && break
+    echo "      waiting for friendbot to fund $IDENT ($attempt/$FUND_ATTEMPTS)..."
+    sleep 5
+  done
 fi
 ADMIN=$(stellar keys address "$IDENT")
 echo "      admin: $ADMIN"
+if ! account_exists; then
+  if [ "$NET" = "mainnet" ]; then
+    echo "error: account $ADMIN does not exist on mainnet; fund it out of band first." >&2
+  else
+    echo "error: could not fund $ADMIN on $NET via friendbot." >&2
+  fi
+  exit 1
+fi
 
 # ---- Summary before anything is sent ---------------------------------------
 cat <<SUMMARY

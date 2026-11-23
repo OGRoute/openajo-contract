@@ -76,6 +76,14 @@ pub(crate) fn advance_past_deadline(f: &Fixture, id: u32) {
     f.env.ledger().with_mut(|l| l.timestamp = deadline + 1);
 }
 
+/// A fresh address funded with 1_000 units of the fixture token, for
+/// scenarios needing more than the fixture's three members.
+pub(crate) fn funded_member(f: &Fixture) -> Address {
+    let m = Address::generate(&f.env);
+    StellarAssetClient::new(&f.env, &f.token.address).mint(&m, &1_000);
+    m
+}
+
 // ---- Happy path -----------------------------------------------------------
 
 /// A fixture with a caller-chosen number of members, for generated scenarios.
