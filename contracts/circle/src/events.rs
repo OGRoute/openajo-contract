@@ -37,6 +37,14 @@ pub fn join(env: &Env, id: u32, member: &Address) {
     );
 }
 
+/// Emitted when the creator removes a member from an `Open` circle.
+pub fn remove(env: &Env, id: u32, member: &Address) {
+    env.events().publish(
+        (symbol_short!("circle"), symbol_short!("remove")),
+        (id, member.clone()),
+    );
+}
+
 pub fn start(env: &Env, id: u32) {
     env.events()
         .publish((symbol_short!("circle"), symbol_short!("start")), id);

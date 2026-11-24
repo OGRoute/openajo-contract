@@ -56,6 +56,19 @@ A non-creator member leaves an `Open` circle and is refunded in full. Requires
 
 Reverts: `NotMember`, `IsCreator` (the creator cancels instead), `BadStatus`.
 
+### `remove_member(circle_id, creator, member)`
+
+The creator removes a member from an `Open` circle. The member's remaining
+deposit is refunded in full and their record is deleted (like `leave`), so they
+may join again later as a new member at the end of the join order. The remaining
+members keep their relative order, so payout order is unchanged. Requires
+`creator` auth.
+
+The creator cannot remove themselves — that would orphan the circle, so they must
+`cancel` instead.
+
+Reverts: `NotCreator`, `BadStatus` (not `Open`), `IsCreator`, `NotMember`.
+
 ### `cancel(circle_id, creator)`
 
 The creator cancels an `Open` circle, refunding every member's deposit. Each
@@ -106,6 +119,7 @@ sub-invocations under the signer's entry.
 | `create_circle(creator, …)` | `creator` | `[creator, { contract_fn { this, `create_circle`, [...] } }]`; plus a token `transfer` sub-invocation under `creator` when `deposit > 0` |
 | `join(circle_id, member)` | `member` | `[member, { contract_fn { this, `join`, [...] } }]`; plus a token `transfer` sub-invocation under `member` when `deposit > 0` |
 | `leave(circle_id, member)` | `member` (not the creator) | `[member, { contract_fn { this, `leave`, [...] } }]`; plus a refund transfer sub-invocation |
+| `remove_member(circle_id, creator, member)` | `creator` | `[creator, { contract_fn { this, `remove_member`, [...] } }]`; plus a refund transfer sub-invocation |
 | `cancel(circle_id, creator)` | `creator` | `[creator, { contract_fn { this, `cancel`, [...] } }]`; plus one refund transfer sub-invocation per member |
 | `contribute(circle_id, member)` | `member` | `[member, { contract_fn { this, `contribute`, [...] } }]`; plus a token `transfer` sub-invocation |
 | `settle_cycle(circle_id)` | nobody — permissionless | none; the invoker only pays the fee |
