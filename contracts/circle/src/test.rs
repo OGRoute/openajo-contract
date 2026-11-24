@@ -2475,249 +2475,112 @@ fn initialize_emits_init_event_with_admin_and_reputation() {
     assert_eq!(env.events().all(), expected);
 }
 
-// ---- Issue #47: swap_positions --------------------------------------------
+// ---- TTL extension ---------------------------------------------------------
 
 #[test]
-fn swap_positions_reorders_payout() {
+fn create_circle_extends_persistent_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
     let f = setup();
-    let [a, b, c] = &f.members;
+    let a = &f.members[0];
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    for key in [
+        crate::types::DataKey::Circle(id),
+        crate::types::DataKey::Members(id),
+        crate::types::DataKey::Member(id, a.clone()),
+        crate::types::DataKey::OpenCircles(a.clone()),
+    ] {
+        let ttl = f.env.as_contract(&f.client.address, || {
+            f.env.storage().persistent().get_ttl(&key)
+        });
+        assert!(
+            ttl >= 518_400,
+            "create_circle did not extend persistent TTL"
+        );
+    }
+}
+
+#[test]
+fn join_extends_persistent_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    for key in [
+        crate::types::DataKey::Circle(id),
+        crate::types::DataKey::Members(id),
+        crate::types::DataKey::Member(id, b.clone()),
+    ] {
+        let ttl = f.env.as_contract(&f.client.address, || {
+            f.env.storage().persistent().get_ttl(&key)
+        });
+        assert!(ttl >= 518_400, "join did not extend persistent TTL");
+    }
+}
+
+#[test]
+fn leave_extends_persistent_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.leave(&id, b);
+    let key = crate::types::DataKey::Members(id);
+    let ttl = f.env.as_contract(&f.client.address, || {
+        f.env.storage().persistent().get_ttl(&key)
+    });
+    assert!(ttl >= 518_400, "leave did not extend persistent TTL");
+}
+
+#[test]
+fn cancel_extends_persistent_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.cancel(&id, a);
+    for key in [
+        crate::types::DataKey::Circle(id),
+        crate::types::DataKey::Member(id, a.clone()),
+        crate::types::DataKey::Member(id, b.clone()),
+        crate::types::DataKey::OpenCircles(a.clone()),
+    ] {
+        let ttl = f.env.as_contract(&f.client.address, || {
+            f.env.storage().persistent().get_ttl(&key)
+        });
+        assert!(ttl >= 518_400, "cancel did not extend persistent TTL");
+    }
+}
+
+#[test]
+fn settle_cycle_extends_persistent_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    let f = setup();
     let id = create_full_circle(&f);
-
-    // Before swap: join order is [a, b, c].
-    assert_eq!(f.client.get_members(&id).get(0), Some(a.clone()));
-    assert_eq!(f.client.get_members(&id).get(1), Some(b.clone()));
-
-    // Swap a and b.
-    f.client.swap_positions(&id, a, b);
-
-    let members = f.client.get_members(&id);
-    assert_eq!(members.get(0), Some(b.clone()));
-    assert_eq!(members.get(1), Some(a.clone()));
-    assert_eq!(members.get(2), Some(c.clone()));
-
-    // After swap b is first in rotation, so b receives cycle 0.
     for m in f.members.iter() {
         f.client.contribute(&id, m);
     }
     f.client.settle_cycle(&id);
-    assert!(f.client.get_member(&id, b).received);
-    assert!(!f.client.get_member(&id, a).received);
-}
-
-#[test]
-fn swap_positions_rejects_received_member() {
-    let f = setup();
-    let [a, b, c] = &f.members;
-    let id = create_full_circle(&f);
-
-    // Settle cycle 0 so a has received.
     for m in f.members.iter() {
-        f.client.contribute(&id, m);
+        let key = crate::types::DataKey::Member(id, m.clone());
+        let ttl = f.env.as_contract(&f.client.address, || {
+            f.env.storage().persistent().get_ttl(&key)
+        });
+        assert!(ttl >= 518_400, "settle_cycle did not extend persistent TTL");
     }
-    f.client.settle_cycle(&id);
-    assert!(f.client.get_member(&id, a).received);
-
-    // Trying to swap a (received) with b should fail.
-    let r = f.client.try_swap_positions(&id, a, b);
-    assert_eq!(r, Err(Ok(crate::errors::Error::CannotSwap.into())));
-
-    let r2 = f.client.try_swap_positions(&id, b, a);
-    assert_eq!(r2, Err(Ok(crate::errors::Error::CannotSwap.into())));
-
-    // c with b is fine (neither received nor defaulted).
-    f.client.swap_positions(&id, b, c);
-}
-
-#[test]
-fn swap_positions_rejects_defaulted_member() {
-    let f = setup();
-    let [a, b, c] = &f.members;
-    let id = create_full_circle(&f);
-
-    // Cycle 0: a and b pay; c misses twice to default.
-    // Cycle 0: c misses, slashed 100/150.
-    f.client.contribute(&id, a);
-    f.client.contribute(&id, b);
-    advance_past_deadline(&f, id);
-    f.client.settle_cycle(&id);
-
-    // Cycle 1: c misses again, 50 slashed, defaulted.
-    f.client.contribute(&id, a);
-    f.client.contribute(&id, b);
-    advance_past_deadline(&f, id);
-    f.client.settle_cycle(&id);
-    assert!(f.client.get_member(&id, c).defaulted);
-
-    let r = f.client.try_swap_positions(&id, a, c);
-    assert_eq!(r, Err(Ok(crate::errors::Error::CannotSwap.into())));
-}
-
-// ---- Issue #48: protocol fee ----------------------------------------------
-
-#[test]
-fn set_fee_stores_config() {
-    let f = setup();
-    let fee_recv = Address::generate(&f.env);
-    f.client.set_fee(&500u32, &fee_recv);
-    // Create a circle and settle to verify fee is applied.
-    let [a, _b, _c] = &f.members;
-    let id = create_full_circle(&f);
-    for m in f.members.iter() {
-        f.client.contribute(&id, m);
-    }
-    // Pot = 3 * 100 = 300; fee = 300 * 500/10000 = 15.
-    let before = f.token.balance(&fee_recv);
-    f.client.settle_cycle(&id);
-    let after = f.token.balance(&fee_recv);
-    assert_eq!(after - before, 15);
-    // Recipient (a) gets pot minus fee = 285.
-    assert_eq!(f.token.balance(a), 1_000 - DEPOSIT - CONTRIB + 285);
-}
-
-#[test]
-fn fee_too_high_panics() {
-    let f = setup();
-    let fee_recv = Address::generate(&f.env);
-    // MAX_FEE_BPS is 1000; 1001 should fail.
-    let r = f.client.try_set_fee(&1001u32, &fee_recv);
-    assert_eq!(r, Err(Ok(crate::errors::Error::FeeTooHigh.into())));
-    // Exactly MAX_FEE_BPS is accepted.
-    f.client.set_fee(&1000u32, &fee_recv);
-}
-
-#[test]
-fn zero_fee_means_no_deduction() {
-    let f = setup();
-    // Default fee_bps is 0; full lifecycle should net zero as before.
-    let id = create_full_circle(&f);
-    for _cycle in 0..3u32 {
-        for m in f.members.iter() {
-            f.client.contribute(&id, m);
-        }
-        f.client.settle_cycle(&id);
-    }
-    for m in f.members.iter() {
-        assert_eq!(f.token.balance(m), 1_000);
-    }
-    assert_eq!(f.token.balance(&f.client.address), 0);
-}
-
-// ---- Issue #49: circle metadata -------------------------------------------
-
-#[test]
-fn meta_stored_and_returned() {
-    use soroban_sdk::BytesN;
-    let f = setup();
-    let [a, _b, _c] = &f.members;
-    let raw: [u8; 32] = [1u8; 32];
-    let meta = BytesN::<32>::from_array(&f.env, &raw);
-    let id = f.client.create_circle(
-        a,
-        &f.token.address,
-        &CONTRIB,
-        &DEPOSIT,
-        &3,
-        &PERIOD,
-        &Some(meta.clone()),
-        &0u64,
-    );
-    let circle = f.client.get_circle(&id);
-    assert_eq!(circle.meta, Some(meta));
-}
-
-#[test]
-fn meta_none_by_default() {
-    let f = setup();
-    let id = create_full_circle(&f);
-    let circle = f.client.get_circle(&id);
-    assert_eq!(circle.meta, None);
-}
-
-// ---- Issue #50: scheduled start time -------------------------------------
-
-#[test]
-fn start_at_delays_activation_timestamp() {
-    let f = setup();
-    let [a, b, c] = &f.members;
-    let now: u64 = 5_000;
-    let future: u64 = 20_000;
-    f.env.ledger().with_mut(|l| l.timestamp = now);
-
-    let id = f.client.create_circle(
-        a,
-        &f.token.address,
-        &CONTRIB,
-        &DEPOSIT,
-        &3,
-        &PERIOD,
-        &None,
-        &future,
-    );
-    f.client.join(&id, b);
-    f.client.join(&id, c); // fills the circle
-
-    let circle = f.client.get_circle(&id);
-    assert_eq!(circle.status, crate::types::CircleStatus::Active);
-    // started_at should be future, not now.
-    assert_eq!(circle.started_at, future);
-    let _ = future;
-}
-
-#[test]
-fn start_at_in_past_uses_now() {
-    let f = setup();
-    let [a, b, c] = &f.members;
-    let now: u64 = 20_000;
-    let past: u64 = 5_000;
-    f.env.ledger().with_mut(|l| l.timestamp = now);
-
-    let id = f.client.create_circle(
-        a,
-        &f.token.address,
-        &CONTRIB,
-        &DEPOSIT,
-        &3,
-        &PERIOD,
-        &None,
-        &past,
-    );
-    f.client.join(&id, b);
-    f.client.join(&id, c);
-
-    let circle = f.client.get_circle(&id);
-    assert_eq!(circle.started_at, now);
-}
-
-#[test]
-fn contribute_blocked_before_start_at() {
-    let f = setup();
-    let [a, b, c] = &f.members;
-    let now: u64 = 5_000;
-    let future: u64 = 20_000;
-    f.env.ledger().with_mut(|l| l.timestamp = now);
-
-    let id = f.client.create_circle(
-        a,
-        &f.token.address,
-        &CONTRIB,
-        &DEPOSIT,
-        &3,
-        &PERIOD,
-        &None,
-        &future,
-    );
-    f.client.join(&id, b);
-    f.client.join(&id, c);
-
-    // Ledger is still at 5_000 < 20_000; contribution must fail.
-    let r = f.client.try_contribute(&id, a);
-    assert_eq!(r, Err(Ok(crate::errors::Error::NotStarted.into())));
-
-    // Advance past start_at; contribution succeeds.
-    f.env.ledger().with_mut(|l| l.timestamp = future + 1);
-    f.client.contribute(&id, a);
-    f.client.contribute(&id, b);
-    f.client.contribute(&id, c);
-    f.client.settle_cycle(&id);
-    assert!(f.client.get_member(&id, a).received);
+    let key = crate::types::DataKey::Circle(id);
+    let ttl = f.env.as_contract(&f.client.address, || {
+        f.env.storage().persistent().get_ttl(&key)
+    });
+    assert!(ttl >= 518_400, "settle_cycle did not extend persistent TTL");
 }
