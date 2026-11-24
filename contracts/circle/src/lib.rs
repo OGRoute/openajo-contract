@@ -25,6 +25,9 @@ use soroban_sdk::{
 use ttl_helpers::{extend_instance, extend_persistent};
 use types::{Circle, CircleStatus, DataKey, GlobalConfig, MemberState};
 
+/// Maximum number of circles returned by `get_circles` per call.
+pub const MAX_PAGE_SIZE: u32 = 50;
+
 /// Shortest cycle a circle may run, in seconds (one hour).
 ///
 /// `create_circle` reverts with `BadParams` when `period_secs` is below this.
@@ -221,6 +224,37 @@ impl CircleContract {
             .remove(&DataKey::Member(circle_id, member));
     }
 
+    /// Creator only, while Open: remove a member and refund their deposit.
+    /// The remaining members keep their join order, so payout order is
+    /// unchanged. The creator cannot be removed; they cancel instead.
+    pub fn remove_member(env: Env, circle_id: u32, creator: Address, member: Address) {
+        creator.require_auth();
+        let circle = storage::read_circle(&env, circle_id);
+        validation::validate_is_creator(&circle, &creator, &env);
+        validation::validate_circle_open(&circle, &env);
+        validation::validate_not_creator(&circle, &member, &env);
+        let state = storage::read_member(&env, circle_id, &member);
+        let mut members = storage::read_members(&env, circle_id);
+
+        if state.deposit_remaining > 0 {
+            token::Client::new(&env, &circle.token).transfer(
+                &env.current_contract_address(),
+                &member,
+                &state.deposit_remaining,
+            );
+        }
+        // `remove` shifts the later members down, so join order, which is
+        // payout order, is kept. Mirrors `leave`.
+        if let Some(index) = members.first_index_of(&member) {
+            members.remove(index);
+        }
+        storage::write_members(&env, circle_id, &members);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Member(circle_id, member.clone()));
+        events::remove(&env, circle_id, &member);
+    }
+
     /// Creator only, while Open: cancel and refund every member's deposit.
     pub fn cancel(env: Env, circle_id: u32, creator: Address) {
         creator.require_auth();
@@ -340,6 +374,58 @@ impl CircleContract {
 
     pub fn total_circles(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::Count).unwrap_or(0)
+    }
+
+    // ---- New views (#66 #67 #68 #69) --------------------------------------
+
+    /// Returns the global configuration set at initialization.
+    /// Panics `NotInitialized` if called before `initialize`.
+    pub fn get_config(env: Env) -> GlobalConfig {
+        storage::read_config(&env)
+    }
+
+    /// Returns up to `limit` circles starting from `start` (inclusive).
+    /// `limit` is capped at [`MAX_PAGE_SIZE`]. Ids past `total_circles` are
+    /// silently absent from the result.
+    pub fn get_circles(env: Env, start: u32, limit: u32) -> Vec<(u32, Circle)> {
+        let total: u32 = env.storage().instance().get(&DataKey::Count).unwrap_or(0);
+        let effective_limit = limit.min(MAX_PAGE_SIZE);
+        let end = total.min(start.saturating_add(effective_limit));
+        let mut result: Vec<(u32, Circle)> = Vec::new(&env);
+        for id in start..end {
+            let circle = storage::read_circle(&env, id);
+            result.push_back((id, circle));
+        }
+        result
+    }
+
+    /// Returns the 0-based cycle in which `member` is due to receive the payout.
+    /// Defaulted members ahead of `member` in join order are skipped so their
+    /// removed slot does not delay those behind them.
+    /// Panics `Defaulted` if `member` itself has defaulted.
+    /// Panics `NotMember` if `member` is not in the circle.
+    pub fn payout_position(env: Env, circle_id: u32, member: Address) -> u32 {
+        let members = storage::read_members(&env, circle_id);
+        let member_state = storage::read_member(&env, circle_id, &member);
+        if member_state.defaulted {
+            panic_with_error!(&env, Error::Defaulted);
+        }
+        let mut pos = 0u32;
+        for m in members.iter() {
+            let state = storage::read_member(&env, circle_id, &m);
+            if !state.defaulted {
+                if m == member {
+                    return pos;
+                }
+                pos += 1;
+            }
+        }
+        panic_with_error!(&env, Error::NotMember)
+    }
+
+    /// Returns the CARGO_PKG_VERSION of this build as a string.
+    pub fn version(env: Env) -> String {
+        String::from_str(&env, env!("CARGO_PKG_VERSION"))
     }
 }
 
