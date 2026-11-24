@@ -14,6 +14,15 @@ pub fn init(env: &Env, admin: &Address) {
         .publish((symbol_short!("rep"), symbol_short!("init")), admin.clone());
 }
 
+/// Emitted whenever a reporter is allowed or revoked. Security-relevant so
+/// monitors can detect unauthorized reporter changes.
+pub fn reporter_set(env: &Env, reporter: &Address, allowed: bool) {
+    env.events().publish(
+        (symbol_short!("rep"), symbol_short!("reporter")),
+        (reporter.clone(), allowed),
+    );
+}
+
 pub fn completion(env: &Env, member: &Address, context: u64) {
     env.events().publish(
         (symbol_short!("rep"), symbol_short!("complete")),
