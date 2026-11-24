@@ -9,4 +9,5 @@ pub enum Error {
     NotAdmin = 3,
     NotReporter = 4,
     BatchTooLarge = 5,
+    NotContractAddress = 6,
 }
