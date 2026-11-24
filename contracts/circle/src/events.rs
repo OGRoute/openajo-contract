@@ -104,3 +104,15 @@ pub fn settle(
         (id, cycle, payers.clone(), slashed_total, recipient),
     );
 }
+
+pub fn keeper_reward(env: &Env, id: u32, keeper: &Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("circle"), symbol_short!("keeperrew")),
+        (id, keeper.clone(), amount),
+    );
+}
+
+pub fn order_set(env: &Env, id: u32) {
+    env.events()
+        .publish((symbol_short!("circle"), symbol_short!("orderset")), id);
+}

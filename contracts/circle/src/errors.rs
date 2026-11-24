@@ -18,4 +18,5 @@ pub enum Error {
     BadParams = 12,
     NotCreator = 13,
     OpenCircleCapExceeded = 14,
+    BadOrder = 15,
 }

@@ -63,9 +63,17 @@ pub(crate) fn setup<'a>() -> Fixture<'a> {
 
 pub(crate) fn create_full_circle(f: &Fixture) -> u32 {
     let [a, b, c] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &false,
+        &false,
+        &0u32,
+    );
     f.client.join(&id, b);
     f.client.join(&id, c);
     id

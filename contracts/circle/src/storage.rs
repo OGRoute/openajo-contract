@@ -67,4 +67,16 @@ pub fn is_paid(env: &Env, id: u32, cycle: u32, member: &Address) -> bool {
         .unwrap_or(false)
 }
 
+/// Read the custom payout order for a circle, if one has been set.
+pub fn read_payout_order(env: &Env, id: u32) -> Option<Vec<Address>> {
+    env.storage().persistent().get(&DataKey::PayoutOrder(id))
+}
+
+/// Write a custom payout order and extend its TTL.
+pub fn write_payout_order(env: &Env, id: u32, order: &Vec<Address>) {
+    let key = DataKey::PayoutOrder(id);
+    env.storage().persistent().set(&key, order);
+    extend_persistent(env, &key);
+}
+
 use soroban_sdk::{panic_with_error, Address};

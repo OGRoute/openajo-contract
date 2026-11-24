@@ -9,7 +9,7 @@
 //!    always equal what was minted. The contract has no mint authority, so any
 //!    drift means value was created or destroyed.
 //! 2. Between cycles the contract escrows exactly the members' remaining
-//!    deposits — every contribution collected has been paid out as the pot.
+//!    deposits â€” every contribution collected has been paid out as the pot.
 //! 3. A terminal circle (completed or cancelled) leaves the contract empty.
 
 use crate::test_utils::{
@@ -73,7 +73,7 @@ fn supply_is_conserved_at_every_step_of_a_clean_circle() {
             f.client.contribute(&id, m);
             assert_conserved(&f, minted);
         }
-        f.client.settle_cycle(&id);
+        f.client.settle_cycle(&id, &f.members[0]);
         assert_conserved(&f, minted);
     }
 
@@ -100,7 +100,7 @@ fn escrow_equals_remaining_deposits_between_cycles() {
                 i + 1
             );
         }
-        f.client.settle_cycle(&id);
+        f.client.settle_cycle(&id, &f.members[0]);
         if cycle < 2 {
             assert_escrow_is_only_deposits(&f, id);
             assert_eq!(deposits_remaining(&f, id), 3 * DEPOSIT);
@@ -123,7 +123,7 @@ fn supply_is_conserved_when_a_member_is_slashed_and_defaults() {
     f.client.contribute(&id, a);
     f.client.contribute(&id, b);
     advance_past_deadline(&f, id);
-    f.client.settle_cycle(&id);
+    f.client.settle_cycle(&id, &f.members[0]);
     assert_conserved(&f, minted);
     assert_escrow_is_only_deposits(&f, id);
     assert_eq!(
@@ -135,7 +135,7 @@ fn supply_is_conserved_when_a_member_is_slashed_and_defaults() {
     f.client.contribute(&id, a);
     f.client.contribute(&id, b);
     advance_past_deadline(&f, id);
-    f.client.settle_cycle(&id);
+    f.client.settle_cycle(&id, &f.members[0]);
     assert_conserved(&f, minted);
 
     let st = f.client.get_member(&id, c);
@@ -154,9 +154,17 @@ fn supply_is_conserved_through_leaving_and_cancelling() {
     let [a, b, c] = &f.members;
     let minted = circulating(&f);
 
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &false,
+        &false,
+        &0u32,
+    );
     assert_conserved(&f, minted);
 
     f.client.join(&id, b);
@@ -213,6 +221,9 @@ mod generated {
             &deposit,
             &(size as u32),
             &3600,
+            &false,
+            &false,
+            &0u32,
         );
         for m in f.members.iter().skip(1) {
             f.client.join(&id, m);
@@ -238,7 +249,7 @@ mod generated {
             if !all_paid {
                 advance_past_deadline_sized(&f, id);
             }
-            f.client.settle_cycle(&id);
+            f.client.settle_cycle(&id, &f.members[0]);
             assert_eq!(
                 circulating(&f) + escrowed(&f),
                 minted,

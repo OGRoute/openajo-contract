@@ -172,6 +172,15 @@
                 },
                 {
                   "u64": "3600"
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "u32": 0
                 }
               ]
             }
@@ -504,6 +513,15 @@
                 },
                 {
                   "u64": "3600"
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "u32": 0
                 }
               ]
             }
@@ -961,6 +979,15 @@
                 },
                 {
                   "u64": "3600"
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "u32": 0
                 }
               ]
             }
@@ -1474,6 +1501,15 @@
                 },
                 {
                   "u64": "3600"
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "u32": 0
                 }
               ]
             }
@@ -2191,6 +2227,14 @@
                 "map": [
                   {
                     "key": {
+                      "symbol": "auto_settle"
+                    },
+                    "val": {
+                      "bool": false
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "contribution"
                     },
                     "val": {
@@ -2231,10 +2275,10 @@
                   },
                   {
                     "key": {
-                      "symbol": "grace_secs"
+                      "symbol": "keeper_reward_bps"
                     },
                     "val": {
-                      "u64": "0"
+                      "u32": 0
                     }
                   },
                   {
@@ -2243,6 +2287,14 @@
                     },
                     "val": {
                       "u64": "3600"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "randomize_order"
+                    },
+                    "val": {
+                      "bool": false
                     }
                   },
                   {
@@ -2319,6 +2371,14 @@
                 "map": [
                   {
                     "key": {
+                      "symbol": "auto_settle"
+                    },
+                    "val": {
+                      "bool": false
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "contribution"
                     },
                     "val": {
@@ -2359,10 +2419,10 @@
                   },
                   {
                     "key": {
-                      "symbol": "grace_secs"
+                      "symbol": "keeper_reward_bps"
                     },
                     "val": {
-                      "u64": "0"
+                      "u32": 0
                     }
                   },
                   {
@@ -2371,6 +2431,14 @@
                     },
                     "val": {
                       "u64": "3600"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "randomize_order"
+                    },
+                    "val": {
+                      "bool": false
                     }
                   },
                   {
@@ -2447,6 +2515,14 @@
                 "map": [
                   {
                     "key": {
+                      "symbol": "auto_settle"
+                    },
+                    "val": {
+                      "bool": false
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "contribution"
                     },
                     "val": {
@@ -2487,10 +2563,10 @@
                   },
                   {
                     "key": {
-                      "symbol": "grace_secs"
+                      "symbol": "keeper_reward_bps"
                     },
                     "val": {
-                      "u64": "0"
+                      "u32": 0
                     }
                   },
                   {
@@ -2499,6 +2575,14 @@
                     },
                     "val": {
                       "u64": "3600"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "randomize_order"
+                    },
+                    "val": {
+                      "bool": false
                     }
                   },
                   {
@@ -2575,6 +2659,14 @@
                 "map": [
                   {
                     "key": {
+                      "symbol": "auto_settle"
+                    },
+                    "val": {
+                      "bool": false
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "contribution"
                     },
                     "val": {
@@ -2615,10 +2707,10 @@
                   },
                   {
                     "key": {
-                      "symbol": "grace_secs"
+                      "symbol": "keeper_reward_bps"
                     },
                     "val": {
-                      "u64": "0"
+                      "u32": 0
                     }
                   },
                   {
@@ -2627,6 +2719,14 @@
                     },
                     "val": {
                       "u64": "3600"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "randomize_order"
+                    },
+                    "val": {
+                      "bool": false
                     }
                   },
                   {
