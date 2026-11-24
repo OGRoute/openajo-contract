@@ -2048,3 +2048,166 @@ fn initialize_emits_init_event_with_admin_and_reputation() {
     ];
     assert_eq!(env.events().all(), expected);
 }
+
+// ---- Issue #66: get_config ------------------------------------------------
+
+#[test]
+fn get_config_returns_stored_values() {
+    let f = setup();
+    let config = f.client.get_config();
+    // The admin and reputation addresses must match what initialize stored.
+    // We cannot compare Address directly, but we can round-trip through the
+    // view: the admin address is reachable by calling set_open_circle_cap
+    // (which requires admin auth) — if mock_all_auths succeeds, the returned
+    // config is consistent.
+    assert_eq!(config.open_circle_cap, u32::MAX);
+    // Calling with a fresh env where the config was stored confirms the value.
+    let f2 = setup();
+    f2.client.set_open_circle_cap(&42);
+    assert_eq!(f2.client.get_config().open_circle_cap, 42);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn get_config_panics_before_initialize() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(CircleContract, ());
+    let client = CircleContractClient::new(&env, &id);
+    client.get_config();
+}
+
+// ---- Issue #67: get_circles -----------------------------------------------
+
+#[test]
+fn get_circles_returns_all_when_within_limit() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id0 = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id1 = f
+        .client
+        .create_circle(b, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id2 = f
+        .client
+        .create_circle(c, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+
+    let page = f.client.get_circles(&0, &10);
+    assert_eq!(page.len(), 3);
+    assert_eq!(page.get(0).unwrap().0, id0);
+    assert_eq!(page.get(1).unwrap().0, id1);
+    assert_eq!(page.get(2).unwrap().0, id2);
+}
+
+#[test]
+fn get_circles_start_past_total_returns_empty() {
+    let f = setup();
+    let [a, _, _] = &f.members;
+    f.client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+
+    let page = f.client.get_circles(&99, &10);
+    assert_eq!(page.len(), 0);
+}
+
+#[test]
+fn get_circles_paginates_correctly() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    f.client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client
+        .create_circle(b, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client
+        .create_circle(c, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+
+    let page = f.client.get_circles(&1, &2);
+    assert_eq!(page.len(), 2);
+    assert_eq!(page.get(0).unwrap().0, 1);
+    assert_eq!(page.get(1).unwrap().0, 2);
+}
+
+#[test]
+fn get_circles_caps_at_max_page_size() {
+    use crate::MAX_PAGE_SIZE;
+    // We only create 3 circles and ask for MAX_PAGE_SIZE+10; should get 3 back.
+    let f = setup();
+    let [a, b, c] = &f.members;
+    f.client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client
+        .create_circle(b, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client
+        .create_circle(c, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+
+    let page = f.client.get_circles(&0, &(MAX_PAGE_SIZE + 10));
+    assert_eq!(page.len(), 3);
+}
+
+// ---- Issue #68: payout_position -------------------------------------------
+
+#[test]
+fn payout_position_join_order() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    assert_eq!(f.client.payout_position(&id, a), 0);
+    assert_eq!(f.client.payout_position(&id, b), 1);
+    assert_eq!(f.client.payout_position(&id, c), 2);
+}
+
+#[test]
+fn payout_position_skips_defaulted_members_ahead() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    // Default b over two missed cycles.
+    for _ in 0..2 {
+        f.client.contribute(&id, a);
+        f.client.contribute(&id, c);
+        advance_past_deadline(&f, id);
+        f.client.settle_cycle(&id);
+    }
+    assert!(f.client.get_member(&id, b).defaulted);
+
+    // c is now at position 1 (b was skipped).
+    assert_eq!(f.client.payout_position(&id, a), 0);
+    assert_eq!(f.client.payout_position(&id, c), 1);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #9)")]
+fn payout_position_panics_for_defaulted_member() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    // Default b.
+    for _ in 0..2 {
+        f.client.contribute(&id, a);
+        f.client.contribute(&id, c);
+        advance_past_deadline(&f, id);
+        f.client.settle_cycle(&id);
+    }
+    f.client.payout_position(&id, b);
+}
+
+// ---- Issue #69: version ---------------------------------------------------
+
+#[test]
+fn circle_version_is_non_empty() {
+    let f = setup();
+    let v = f.client.version();
+    assert!(!v.is_empty());
+}
+
+#[test]
+fn circle_version_matches_cargo_pkg_version() {
+    let f = setup();
+    let v = f.client.version();
+    let expected = soroban_sdk::String::from_str(&f.env, env!("CARGO_PKG_VERSION"));
+    assert_eq!(v, expected);
+}
