@@ -2626,6 +2626,9 @@ fn settle_cycle_emits_settle_event_no_recipient() {
     // Cycle 1: nobody pays; both default.
     advance_past_deadline(&f, id);
     f.client.settle_cycle(&id);
+    // Capture events immediately — env.events().all() only holds the last invocation,
+    // so any subsequent read call (get_member, get_circle) would clear the buffer.
+    let cycle1_events = f.env.events().all().filter_by_contract(&f.client.address);
     assert!(f.client.get_member(&id, a).defaulted);
     assert!(f.client.get_member(&id, b).defaulted);
     assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
@@ -2690,10 +2693,7 @@ fn settle_cycle_emits_settle_event_no_recipient() {
             id.into_val(&f.env),
         ),
     ];
-    assert_eq!(
-        f.env.events().all().filter_by_contract(&f.client.address),
-        expected_cycle1
-    );
+    assert_eq!(cycle1_events, expected_cycle1);
 }
 
 // ---- Issue #60: is_member view --------------------------------------------
