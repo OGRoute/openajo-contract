@@ -8,4 +8,5 @@ pub enum Error {
     AlreadyInitialized = 2,
     NotAdmin = 3,
     NotReporter = 4,
+    NotContractAddress = 5,
 }

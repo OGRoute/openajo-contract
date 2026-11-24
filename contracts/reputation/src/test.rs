@@ -9,7 +9,7 @@ use soroban_sdk::{
         storage::Persistent as _, Address as _, AuthorizedFunction, AuthorizedInvocation, Events,
         Ledger,
     },
-    vec, Address, Env, IntoVal, Symbol, Val, Vec,
+    vec, Address, Bytes, Env, IntoVal, Symbol, Val, Vec,
 };
 
 /// Circle id used as the report context in tests.
@@ -25,6 +25,16 @@ fn setup() -> (Env, ReputationContractClient<'static>, Address) {
     (env, client, admin)
 }
 
+/// Returns `Reputation` with both timestamp fields set to `None`.
+fn rep(completed: u32, defaulted: u32) -> Reputation {
+    Reputation {
+        completed,
+        defaulted,
+        last_completed_at: None,
+        last_defaulted_at: None,
+    }
+}
+
 #[test]
 fn reports_increment_counts() {
     let (env, client, admin) = setup();
@@ -36,26 +46,16 @@ fn reports_increment_counts() {
     client.report_completion(&reporter, &member, &CTX);
     client.report_default(&reporter, &member, &CTX);
 
-    assert_eq!(
-        client.get_reputation(&member),
-        Reputation {
-            completed: 2,
-            defaulted: 1
-        }
-    );
+    let r = client.get_reputation(&member);
+    assert_eq!(r.completed, 2);
+    assert_eq!(r.defaulted, 1);
 }
 
 #[test]
 fn unknown_member_reads_zero() {
     let (env, client, _) = setup();
     let stranger = Address::generate(&env);
-    assert_eq!(
-        client.get_reputation(&stranger),
-        Reputation {
-            completed: 0,
-            defaulted: 0
-        }
-    );
+    assert_eq!(client.get_reputation(&stranger), rep(0, 0));
 }
 
 #[test]
@@ -108,19 +108,13 @@ fn two_reporters_write_to_one_record() {
     client.set_reporter(&admin, &first, &true);
     client.set_reporter(&admin, &second, &true);
 
-    // A member's history spans every circle contract allowed to report, not
-    // just the one that created the circle.
     client.report_completion(&first, &member, &CTX);
     client.report_completion(&second, &member, &CTX);
     client.report_default(&second, &member, &CTX);
 
-    assert_eq!(
-        client.get_reputation(&member),
-        Reputation {
-            completed: 2,
-            defaulted: 1
-        }
-    );
+    let r = client.get_reputation(&member);
+    assert_eq!(r.completed, 2);
+    assert_eq!(r.defaulted, 1);
 }
 
 #[test]
@@ -134,15 +128,10 @@ fn revoking_a_reporter_keeps_what_it_already_wrote() {
     client.set_reporter(&admin, &reporter, &false);
 
     // Revocation is forward-only: it stops future writes without rewriting
-    // history. An admin must not be able to launder a default away by
-    // revoking the reporter that recorded it.
-    assert_eq!(
-        client.get_reputation(&member),
-        Reputation {
-            completed: 1,
-            defaulted: 0
-        }
-    );
+    // history.
+    let r = client.get_reputation(&member);
+    assert_eq!(r.completed, 1);
+    assert_eq!(r.defaulted, 0);
 }
 
 #[test]
@@ -156,28 +145,16 @@ fn records_are_kept_per_member() {
     client.report_completion(&reporter, &good, &CTX);
     client.report_default(&reporter, &bad, &CTX);
 
-    assert_eq!(
-        client.get_reputation(&good),
-        Reputation {
-            completed: 1,
-            defaulted: 0
-        }
-    );
-    assert_eq!(
-        client.get_reputation(&bad),
-        Reputation {
-            completed: 0,
-            defaulted: 1
-        }
-    );
+    let rg = client.get_reputation(&good);
+    assert_eq!(rg.completed, 1);
+    assert_eq!(rg.defaulted, 0);
+
+    let rb = client.get_reputation(&bad);
+    assert_eq!(rb.completed, 0);
+    assert_eq!(rb.defaulted, 1);
 }
 
 // ---- Authorization --------------------------------------------------------
-//
-// `setup()` uses `mock_all_auths`, so a dropped `require_auth` would not make
-// any other test fail. These assert the exact address whose authorisation
-// each call consumes, and that the call fails when that authorisation is
-// missing.
 
 /// The single top-level authorisation `signer` gives for `fn_name(args)` on
 /// the reputation contract.
@@ -223,7 +200,6 @@ fn report_completion_requires_reporter_auth() {
     let member = Address::generate(&env);
     client.set_reporter(&admin, &reporter, &true);
     client.report_completion(&reporter, &member, &CTX);
-    // The reporter authorises; the member being reported does not.
     assert_eq!(
         env.auths(),
         expected_auth(
@@ -268,7 +244,6 @@ fn report_completion_without_reporter_auth_fails() {
     let member = Address::generate(&env);
     client.set_reporter(&admin, &reporter, &true);
     env.set_auths(&[]);
-    // Allow-listed, but the reporter did not sign: rejected before any write.
     assert!(client
         .try_report_completion(&reporter, &member, &CTX)
         .is_err());
@@ -291,7 +266,6 @@ fn unlisted_reporter_with_auth_fails_not_reporter() {
     let (env, client, _) = setup();
     let rogue = Address::generate(&env);
     let member = Address::generate(&env);
-    // Auth alone is not enough: the allow-list check must also pass.
     assert_eq!(
         client.try_report_default(&rogue, &member, &CTX),
         Err(Ok(Error::NotReporter.into()))
@@ -300,13 +274,13 @@ fn unlisted_reporter_with_auth_fails_not_reporter() {
 
 // ---- Counter overflow (#106) ----------------------------------------------
 
-/// Writes `rep` straight into the member's record, bypassing the reporter
-/// path, so a test can start from a counter near `u32::MAX`.
+/// Writes `rep` straight into the member's record via `RepV2`, bypassing the
+/// reporter path so a test can start from a counter near `u32::MAX`.
 fn seed(env: &Env, client: &ReputationContractClient, member: &Address, rep: &Reputation) {
     env.as_contract(&client.address, || {
         env.storage()
             .persistent()
-            .set(&crate::types::DataKey::Rep(member.clone()), rep);
+            .set(&crate::types::DataKey::RepV2(member.clone()), rep);
     });
 }
 
@@ -316,33 +290,17 @@ fn completed_counter_overflow_panics_and_keeps_record() {
     let reporter = Address::generate(&env);
     let member = Address::generate(&env);
     client.set_reporter(&admin, &reporter, &true);
-    seed(
-        &env,
-        &client,
-        &member,
-        &Reputation {
-            completed: u32::MAX - 1,
-            defaulted: 7,
-        },
-    );
+    seed(&env, &client, &member, &rep(u32::MAX - 1, 7));
 
-    // The last representable value is still reachable.
     client.report_completion(&reporter, &member, &CTX);
     assert_eq!(client.get_reputation(&member).completed, u32::MAX);
 
-    // `completed += 1` on u32::MAX trips the overflow check (enabled in both
-    // the test profile and the release wasm profile): the call aborts rather
-    // than wrapping to 0, and the stored record is left untouched.
     assert!(client
         .try_report_completion(&reporter, &member, &CTX)
         .is_err());
-    assert_eq!(
-        client.get_reputation(&member),
-        Reputation {
-            completed: u32::MAX,
-            defaulted: 7
-        }
-    );
+    let r = client.get_reputation(&member);
+    assert_eq!(r.completed, u32::MAX);
+    assert_eq!(r.defaulted, 7);
 }
 
 #[test]
@@ -351,26 +309,13 @@ fn defaulted_counter_overflow_panics_and_keeps_record() {
     let reporter = Address::generate(&env);
     let member = Address::generate(&env);
     client.set_reporter(&admin, &reporter, &true);
-    seed(
-        &env,
-        &client,
-        &member,
-        &Reputation {
-            completed: 3,
-            defaulted: u32::MAX,
-        },
-    );
+    seed(&env, &client, &member, &rep(3, u32::MAX));
 
     assert!(client.try_report_default(&reporter, &member, &CTX).is_err());
-    assert_eq!(
-        client.get_reputation(&member),
-        Reputation {
-            completed: 3,
-            defaulted: u32::MAX
-        }
-    );
+    let r = client.get_reputation(&member);
+    assert_eq!(r.completed, 3);
+    assert_eq!(r.defaulted, u32::MAX);
 
-    // A saturated `defaulted` counter does not block the other counter.
     client.report_completion(&reporter, &member, &CTX);
     assert_eq!(client.get_reputation(&member).completed, 4);
 }
@@ -382,15 +327,7 @@ fn completed_counter_overflow_is_an_arithmetic_panic() {
     let reporter = Address::generate(&env);
     let member = Address::generate(&env);
     client.set_reporter(&admin, &reporter, &true);
-    seed(
-        &env,
-        &client,
-        &member,
-        &Reputation {
-            completed: u32::MAX,
-            defaulted: 0,
-        },
-    );
+    seed(&env, &client, &member, &rep(u32::MAX, 0));
     client.report_completion(&reporter, &member, &CTX);
 }
 
@@ -462,37 +399,34 @@ fn reading_a_record_refreshes_its_long_ttl() {
     client.set_reporter(&admin, &reporter, &true);
     client.report_completion(&reporter, &member, &1);
 
-    let key = crate::types::DataKey::Rep(member.clone());
-    let initial_ttl = env.as_contract(&client.address, || env.storage().persistent().get_ttl(&key));
+    let key = crate::types::DataKey::RepV2(member.clone());
+    let initial_ttl =
+        env.as_contract(&client.address, || env.storage().persistent().get_ttl(&key));
     assert!(
         initial_ttl >= ttl_helpers::LONG_TTL_EXTEND,
         "record should start with the long TTL, got {initial_ttl}"
     );
     let original_expiry = initial_ttl;
 
-    // One ledger before the record would expire, a read refreshes it.
     env.ledger()
         .with_mut(|l| l.sequence_number = original_expiry - 1);
-    let remaining = env.as_contract(&client.address, || env.storage().persistent().get_ttl(&key));
+    let remaining =
+        env.as_contract(&client.address, || env.storage().persistent().get_ttl(&key));
     assert_eq!(remaining, 1);
     assert_eq!(client.get_reputation(&member).completed, 1);
 
-    let refreshed = env.as_contract(&client.address, || env.storage().persistent().get_ttl(&key));
+    let refreshed =
+        env.as_contract(&client.address, || env.storage().persistent().get_ttl(&key));
     assert!(
         refreshed >= ttl_helpers::LONG_TTL_EXTEND,
         "read should refresh to the long window, got {refreshed}"
     );
 
-    // Past the original expiry the record still reads back intact.
     env.ledger()
         .with_mut(|l| l.sequence_number = original_expiry + 1);
-    assert_eq!(
-        client.get_reputation(&member),
-        Reputation {
-            completed: 1,
-            defaulted: 0
-        }
-    );
+    let r = client.get_reputation(&member);
+    assert_eq!(r.completed, 1);
+    assert_eq!(r.defaulted, 0);
 }
 
 // ---- Reporter allow-list storage (#75) ------------------------------------
@@ -508,4 +442,217 @@ fn reporter_flags_live_in_persistent_storage() {
     let instance = env.as_contract(&client.address, || env.storage().instance().has(&key));
     assert!(persistent, "reporter flag must be persistent");
     assert!(!instance, "reporter flag must not stay in instance storage");
+}
+
+// ---- Issue #78: timestamps ------------------------------------------------
+
+#[test]
+fn report_completion_records_timestamp() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+
+    env.ledger().with_mut(|l| l.timestamp = 1_000_000);
+    client.report_completion(&reporter, &member, &CTX);
+
+    let r = client.get_reputation(&member);
+    assert_eq!(r.last_completed_at, Some(1_000_000));
+    assert_eq!(r.last_defaulted_at, None);
+}
+
+#[test]
+fn report_default_records_timestamp() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+
+    env.ledger().with_mut(|l| l.timestamp = 2_000_000);
+    client.report_default(&reporter, &member, &CTX);
+
+    let r = client.get_reputation(&member);
+    assert_eq!(r.last_defaulted_at, Some(2_000_000));
+    assert_eq!(r.last_completed_at, None);
+}
+
+#[test]
+fn latest_timestamp_overwrites_earlier_one() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    client.report_completion(&reporter, &member, &CTX);
+
+    env.ledger().with_mut(|l| l.timestamp = 2_000);
+    client.report_completion(&reporter, &member, &CTX);
+
+    assert_eq!(client.get_reputation(&member).last_completed_at, Some(2_000));
+}
+
+#[test]
+fn v1_record_migrates_on_first_read_with_no_timestamps() {
+    let (env, client, _) = setup();
+    let member = Address::generate(&env);
+
+    // Write a legacy V1 record directly to storage.
+    env.as_contract(&client.address, || {
+        env.storage().persistent().set(
+            &crate::types::DataKey::Rep(member.clone()),
+            &crate::types::ReputationV1 {
+                completed: 5,
+                defaulted: 2,
+            },
+        );
+    });
+
+    let r = client.get_reputation(&member);
+    assert_eq!(r.completed, 5);
+    assert_eq!(r.defaulted, 2);
+    assert_eq!(r.last_completed_at, None);
+    assert_eq!(r.last_defaulted_at, None);
+
+    // After migration the V2 key must exist.
+    let has_v2 = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .has(&crate::types::DataKey::RepV2(member.clone()))
+    });
+    assert!(has_v2, "RepV2 key should exist after migration");
+}
+
+// ---- Issue #79: admin correction ------------------------------------------
+
+#[test]
+fn correct_overwrites_counters() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    client.report_completion(&reporter, &member, &CTX);
+    client.report_completion(&reporter, &member, &CTX);
+    client.report_default(&reporter, &member, &CTX);
+
+    let reason = Bytes::from_array(&env, &[0xdeu8; 32]);
+    client.correct(&member, &5, &0, &reason);
+
+    let r = client.get_reputation(&member);
+    assert_eq!(r.completed, 5);
+    assert_eq!(r.defaulted, 0);
+}
+
+#[test]
+fn correct_preserves_timestamps() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+
+    env.ledger().with_mut(|l| l.timestamp = 9_999);
+    client.report_completion(&reporter, &member, &CTX);
+
+    let reason = Bytes::from_array(&env, &[0x01u8; 32]);
+    client.correct(&member, &10, &1, &reason);
+
+    let r = client.get_reputation(&member);
+    assert_eq!(r.completed, 10);
+    assert_eq!(r.defaulted, 1);
+    assert_eq!(r.last_completed_at, Some(9_999));
+}
+
+#[test]
+fn correct_without_admin_auth_fails() {
+    let (env, client, _) = setup();
+    let member = Address::generate(&env);
+    let reason = Bytes::from_array(&env, &[0x00u8; 32]);
+    env.set_auths(&[]);
+    assert!(client.try_correct(&member, &0, &0, &reason).is_err());
+}
+
+#[test]
+fn correct_requires_admin_auth() {
+    let (env, client, admin) = setup();
+    let member = Address::generate(&env);
+    let reason = Bytes::from_array(&env, &[0xabu8; 32]);
+    client.correct(&member, &3, &1, &reason);
+    assert_eq!(
+        env.auths(),
+        expected_auth(
+            &client,
+            &admin,
+            "correct",
+            (member.clone(), 3u32, 1u32, reason.clone()).into_val(&env),
+        )
+    );
+}
+
+// ---- Issue #80: score -----------------------------------------------------
+
+#[test]
+fn score_zero_for_unknown_member() {
+    let (env, client, _) = setup();
+    let stranger = Address::generate(&env);
+    assert_eq!(client.score(&stranger), 0);
+}
+
+#[test]
+fn score_perfect_with_no_defaults() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    client.report_completion(&reporter, &member, &CTX);
+    client.report_completion(&reporter, &member, &CTX);
+    assert_eq!(client.score(&member), 10_000);
+}
+
+#[test]
+fn score_zero_with_no_completions() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    client.report_default(&reporter, &member, &CTX);
+    assert_eq!(client.score(&member), 0);
+}
+
+#[test]
+fn score_mixed_record() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let member = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+    // 3 completions, 1 default → 3/4 × 10 000 = 7 500
+    client.report_completion(&reporter, &member, &CTX);
+    client.report_completion(&reporter, &member, &CTX);
+    client.report_completion(&reporter, &member, &CTX);
+    client.report_default(&reporter, &member, &CTX);
+    assert_eq!(client.score(&member), 7_500);
+}
+
+// ---- Issue #81: contract address check ------------------------------------
+
+#[test]
+fn account_address_rejected_as_reporter() {
+    let (env, client, admin) = setup();
+    // register_stellar_asset_contract_v2 creates a real Stellar account entry
+    // in the test ledger, so executable() returns Some(Executable::Account).
+    let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
+    let account_addr = sac.issuer().address();
+    assert_eq!(
+        client.try_set_reporter(&admin, &account_addr, &true),
+        Err(Ok(Error::NotContractAddress.into()))
+    );
+}
+
+#[test]
+fn unregistered_contract_address_accepted_as_reporter() {
+    // Address::generate creates an unregistered contract address.
+    // executable() returns None for it, which is not Some(Account), so it
+    // passes the check — an admin may whitelist a contract before it deploys.
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    assert!(client.try_set_reporter(&admin, &reporter, &true).is_ok());
 }
