@@ -5,7 +5,8 @@
 //! See the note in the circle contract's events module on why `publish` is
 //! still used under soroban-sdk 28.
 
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Address, Bytes, Env};
+use crate::types::Reputation;
 
 /// Emitted once when the contract is initialized, so monitors can see which
 /// admin took control and detect front-running.
@@ -25,5 +26,21 @@ pub fn defaulted(env: &Env, member: &Address, context: u64) {
     env.events().publish(
         (symbol_short!("rep"), symbol_short!("default")),
         (member.clone(), context),
+    );
+}
+
+/// Emitted when an admin corrects a member's record. `before` and `after` are
+/// the full `Reputation` structs; `reason_hash` is an arbitrary bytes value
+/// (e.g. a SHA-256 of an off-chain justification document).
+pub fn correction(
+    env: &Env,
+    member: &Address,
+    before: &Reputation,
+    after: &Reputation,
+    reason_hash: &Bytes,
+) {
+    env.events().publish(
+        (symbol_short!("rep"), symbol_short!("correct")),
+        (member.clone(), before.clone(), after.clone(), reason_hash.clone()),
     );
 }
