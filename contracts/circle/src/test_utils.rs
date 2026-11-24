@@ -70,8 +70,9 @@ pub(crate) fn create_full_circle(f: &Fixture) -> u32 {
         &DEPOSIT,
         &3,
         &PERIOD,
-        &None,
-        &0u64,
+        &false,
+        &false,
+        &0u32,
     );
     f.client.join(&id, b);
     f.client.join(&id, c);

@@ -9,8 +9,13 @@ use crate::errors::Error;
 use crate::types::{CircleStatus, DataKey, GlobalConfig};
 use crate::ReputationClient;
 
-/// Settle a due cycle.
-pub fn settle_cycle(env: Env, circle_id: u32) {
+/// Settle a due cycle, optionally rewarding `keeper` from slashed funds.
+///
+/// `keeper` is any address the caller supplies; if the circle's
+/// `keeper_reward_bps` is non-zero and there are slashes this cycle, `keeper`
+/// receives that fraction of the slashed amount before the pot is paid out.
+/// No auth is required from `keeper`.
+pub fn settle_cycle(env: Env, circle_id: u32, keeper: Address) {
     let mut circle = crate::storage::read_circle(&env, circle_id);
     if circle.status != CircleStatus::Active {
         panic_with_error!(&env, Error::BadStatus);
@@ -46,7 +51,9 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
     let this = env.current_contract_address();
 
     // 1) Collect the pot: contributions already escrowed by payers, plus
-    //    slashes from active members who missed.
+    //    slashes from active members who missed. Track slashed_total before
+    //    this cycle so we can compute the keeper's share.
+    let old_slashed_total = circle.slashed_total;
     let mut pot: i128 = 0;
     let mut payers: Vec<Address> = vec![&env];
     let mut slashed_who: Vec<Address> = vec![&env];
@@ -88,11 +95,18 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
             .remove(&DataKey::Paid(circle_id, cycle, p));
     }
 
-    // 2) Pay the first member in join order who is active and unpaid.
-    //    The protocol fee is deducted only from the recipient's payout, not
-    //    from the fallback redistribution (edge case with no eligible recipient).
+    // 2) Compute keeper reward from this cycle's slashes only — never from
+    //    contributions. The reward is deducted from the pot before payout.
+    let slash_this_cycle = circle.slashed_total - old_slashed_total;
+    let keeper_reward = (slash_this_cycle * circle.keeper_reward_bps as i128) / 10_000;
+
+    // 3) Find the first recipient in payout order: custom order if set,
+    //    otherwise join order (the members list). The protocol fee is
+    //    deducted from the recipient's payout (not fallback redistribution).
+    let custom_order = crate::storage::read_payout_order(&env, circle_id);
+    let order: &Vec<Address> = custom_order.as_ref().unwrap_or(&members);
     let mut recipient: Option<Address> = None;
-    for m in members.iter() {
+    for m in order.iter() {
         let st = crate::storage::read_member(&env, circle_id, &m);
         if !st.received && !st.defaulted {
             recipient = Some(m);
@@ -102,12 +116,18 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
     let settle_recipient = recipient.clone();
     match recipient {
         Some(r) => {
+            // Pay keeper from slash proceeds (never from contributions).
+            if keeper_reward > 0 {
+                tok.transfer(&this, &keeper, &keeper_reward);
+                crate::events::keeper_reward(&env, circle_id, &keeper, keeper_reward);
+            }
+            // Deduct protocol fee from the net pot after keeper.
             let fee = if config.fee_bps > 0 {
-                pot * config.fee_bps as i128 / 10_000
+                (pot - keeper_reward) * config.fee_bps as i128 / 10_000
             } else {
                 0
             };
-            let payout_pot = pot - fee;
+            let payout_pot = pot - keeper_reward - fee;
             if fee > 0 {
                 tok.transfer(&this, &config.fee_recipient, &fee);
             }
@@ -123,7 +143,8 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
             // Edge: this settlement's defaults eliminated every remaining
             // unpaid member. Return contributions to payers and split the
             // slashed amount equally among them (remainder to the first),
-            // so no funds strand in the contract.
+            // so no funds strand in the contract. Keeper receives nothing
+            // when there is no recipient.
             let n = payers.len();
             if n > 0 {
                 let slash_total = pot - circle.contribution * (n as i128);
@@ -162,7 +183,7 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
         settle_recipient,
     );
 
-    // 3) Complete when no active member is still owed a payout; otherwise
+    // 4) Complete when no active member is still owed a payout; otherwise
     //    advance the cycle.
     let mut done = true;
     for m in members.iter() {

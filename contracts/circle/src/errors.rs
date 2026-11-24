@@ -24,4 +24,5 @@ pub enum Error {
     CannotSwap = 16,
     /// set_fee called with fee_bps above MAX_FEE_BPS.
     FeeTooHigh = 17,
+    BadOrder = 18,
 }
