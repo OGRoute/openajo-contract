@@ -373,6 +373,22 @@ impl CircleContract {
         panic_with_error!(&env, Error::NotMember)
     }
 
+    /// Returns `true` when `member` is currently in the circle's member list,
+    /// `false` for addresses that never joined or that left before activation.
+    pub fn is_member(env: Env, circle_id: u32, member: Address) -> bool {
+        env.storage()
+            .persistent()
+            .has(&DataKey::Member(circle_id, member))
+    }
+
+    /// Returns `true` when `member` has already contributed to the circle's
+    /// current cycle, `false` otherwise (including after `settle_cycle` removes
+    /// the flag).
+    pub fn has_paid(env: Env, circle_id: u32, member: Address) -> bool {
+        let circle = storage::read_circle(&env, circle_id);
+        storage::is_paid(&env, circle_id, circle.current_cycle, &member)
+    }
+
     /// Returns the CARGO_PKG_VERSION of this build as a string.
     pub fn version(env: Env) -> String {
         String::from_str(&env, env!("CARGO_PKG_VERSION"))

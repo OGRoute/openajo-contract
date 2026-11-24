@@ -12,7 +12,7 @@
 //! change (openajo-contract#12 / openajo-app#22) rather than riding along with
 //! an SDK bump. The deprecated call is deliberate until then.
 
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Address, Env, Vec};
 
 /// Emitted once when the contract is initialized, with the admin that took
 /// control and the reputation contract it reports to.
@@ -86,4 +86,21 @@ pub fn complete(env: &Env, id: u32) {
 pub fn cancel(env: &Env, id: u32) {
     env.events()
         .publish((symbol_short!("circle"), symbol_short!("cancel")), id);
+}
+
+/// Emitted once per settled cycle with a summary: who paid, how much was
+/// slashed in total (this cycle only), and who received the payout (None in
+/// the edge-case where every remaining member defaulted this cycle).
+pub fn settle(
+    env: &Env,
+    id: u32,
+    cycle: u32,
+    payers: &Vec<Address>,
+    slashed_total: i128,
+    recipient: Option<Address>,
+) {
+    env.events().publish(
+        (symbol_short!("circle"), symbol_short!("settle")),
+        (id, cycle, payers.clone(), slashed_total, recipient),
+    );
 }

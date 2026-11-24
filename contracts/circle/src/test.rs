@@ -2427,3 +2427,382 @@ fn circle_version_matches_cargo_pkg_version() {
     let expected = soroban_sdk::String::from_str(&f.env, env!("CARGO_PKG_VERSION"));
     assert_eq!(v, expected);
 }
+
+// ---- Issue #58: remove Paid flags after settlement -------------------------
+
+#[test]
+fn paid_flags_removed_after_settlement() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    for m in f.members.iter() {
+        f.client.contribute(&id, m);
+    }
+    // Cycle 0: all paid, settle.
+    f.client.settle_cycle(&id);
+
+    // After settlement the Paid flags for cycle 0 must be absent from
+    // temporary storage.  `as_contract` runs the closure in the circle
+    // contract's storage context so we can inspect its temporary keys.
+    use crate::types::DataKey;
+    for m in [a, b, c] {
+        let gone = f.env.as_contract(&f.client.address, || {
+            !f.env
+                .storage()
+                .temporary()
+                .has(&DataKey::Paid(id, 0, m.clone()))
+        });
+        assert!(
+            gone,
+            "Paid flag for cycle 0 should be deleted after settlement"
+        );
+    }
+}
+
+#[test]
+fn paid_flags_removed_even_after_deadline_settlement() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    // a and b pay; c misses and is slashed.
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    advance_past_deadline(&f, id);
+    f.client.settle_cycle(&id);
+
+    use crate::types::DataKey;
+    // Flags for the two payers must be gone.
+    for m in [a, b] {
+        let gone = f.env.as_contract(&f.client.address, || {
+            !f.env
+                .storage()
+                .temporary()
+                .has(&DataKey::Paid(id, 0, m.clone()))
+        });
+        assert!(
+            gone,
+            "Paid flag for payer {m:?} should be deleted after settlement"
+        );
+    }
+    // c never paid, so its key was never set; confirm it is still absent.
+    let c_absent = f.env.as_contract(&f.client.address, || {
+        !f.env
+            .storage()
+            .temporary()
+            .has(&DataKey::Paid(id, 0, c.clone()))
+    });
+    assert!(c_absent);
+}
+
+// ---- Issue #59: settle summary event --------------------------------------
+
+#[test]
+fn settle_cycle_emits_settle_event_all_paid() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    for m in f.members.iter() {
+        f.client.contribute(&id, m);
+    }
+    f.client.settle_cycle(&id);
+
+    let settle_topics: Vec<Val> = vec![
+        &f.env,
+        symbol_short!("circle").into_val(&f.env),
+        symbol_short!("settle").into_val(&f.env),
+    ];
+    let settle_data = (
+        id,
+        0u32,
+        soroban_sdk::vec![&f.env, a.clone(), b.clone(), c.clone()],
+        0i128,
+        Some(a.clone()),
+    )
+        .into_val(&f.env);
+
+    // settle_cycle emits: payout, then settle (all paid, no slashes).
+    let payout_topics: Vec<Val> = vec![
+        &f.env,
+        symbol_short!("circle").into_val(&f.env),
+        symbol_short!("payout").into_val(&f.env),
+    ];
+    let payout_data = (id, a.clone(), 3 * CONTRIB, 0u32).into_val(&f.env);
+    let expected = vec![
+        &f.env,
+        (f.client.address.clone(), payout_topics, payout_data),
+        (f.client.address.clone(), settle_topics, settle_data),
+    ];
+    assert_eq!(
+        f.env.events().all().filter_by_contract(&f.client.address),
+        expected
+    );
+}
+
+#[test]
+fn settle_cycle_emits_settle_event_with_slash() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    // c misses cycle 0; a and b pay.
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    advance_past_deadline(&f, id);
+    f.client.settle_cycle(&id);
+
+    let settle_topics: Vec<Val> = vec![
+        &f.env,
+        symbol_short!("circle").into_val(&f.env),
+        symbol_short!("settle").into_val(&f.env),
+    ];
+    let settle_data = (
+        id,
+        0u32,
+        soroban_sdk::vec![&f.env, a.clone(), b.clone()],
+        CONTRIB, // 100 slashed from c's deposit
+        Some(a.clone()),
+    )
+        .into_val(&f.env);
+
+    // settle_cycle emits: slash(c), payout(a), settle.
+    // c's deposit(150) - slash(100) = 50, which equals contribution, so NOT defaulted.
+    let slash_topics: Vec<Val> = vec![
+        &f.env,
+        symbol_short!("circle").into_val(&f.env),
+        symbol_short!("slash").into_val(&f.env),
+    ];
+    let payout_topics: Vec<Val> = vec![
+        &f.env,
+        symbol_short!("circle").into_val(&f.env),
+        symbol_short!("payout").into_val(&f.env),
+    ];
+    let expected = vec![
+        &f.env,
+        (
+            f.client.address.clone(),
+            slash_topics,
+            (id, c.clone(), CONTRIB).into_val(&f.env),
+        ),
+        (
+            f.client.address.clone(),
+            payout_topics,
+            (id, a.clone(), 3 * CONTRIB, 0u32).into_val(&f.env),
+        ),
+        (f.client.address.clone(), settle_topics, settle_data),
+    ];
+    assert_eq!(
+        f.env.events().all().filter_by_contract(&f.client.address),
+        expected
+    );
+}
+
+#[test]
+fn settle_cycle_emits_settle_event_no_recipient() {
+    // Edge case: all remaining members default in the same cycle so that there
+    // is no one left to receive the payout (recipient = None).
+    //
+    // Scenario (2-member circle, deposit=150, contribution=100):
+    //   cycle 0: nobody pays → both slashed 100; deposit → 50 each; not yet
+    //            defaulted (slash == contribution); a receives the 200-unit pot.
+    //   cycle 1: nobody pays → both slashed 50; deposit → 0; both default
+    //            (slash < contribution); find-recipient skips a (received) and
+    //            b (defaulted) → recipient = None.
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &2, &PERIOD);
+    f.client.join(&id, b);
+
+    // Cycle 0: nobody pays.
+    advance_past_deadline(&f, id);
+    f.client.settle_cycle(&id);
+    assert!(!f.client.get_member(&id, a).defaulted);
+    assert!(!f.client.get_member(&id, b).defaulted);
+
+    // Cycle 1: nobody pays; both default.
+    advance_past_deadline(&f, id);
+    f.client.settle_cycle(&id);
+    assert!(f.client.get_member(&id, a).defaulted);
+    assert!(f.client.get_member(&id, b).defaulted);
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
+
+    // The settle event for cycle 1 must have recipient = None and an empty
+    // payers list.  It is the second-to-last circle event (complete follows).
+    let settle_topics: Vec<Val> = vec![
+        &f.env,
+        symbol_short!("circle").into_val(&f.env),
+        symbol_short!("settle").into_val(&f.env),
+    ];
+    let empty_payers = soroban_sdk::Vec::<Address>::new(&f.env);
+    // cycle_slashed = 50 (a) + 50 (b) = 100
+    let settle_data_cycle1 = (id, 1u32, empty_payers, 100i128, None::<Address>).into_val(&f.env);
+
+    // Cycle 1 settle emits (in order): slash(a,50), defaulted(a), slash(b,50),
+    // defaulted(b), settle(id,1,[],100,None), complete(id).
+    // After cycle 0, each deposit is DEPOSIT − CONTRIB = 50; slash = min(50,100) = 50
+    // which is < contribution, so both default.
+    let slash_topics: Vec<Val> = vec![
+        &f.env,
+        symbol_short!("circle").into_val(&f.env),
+        symbol_short!("slash").into_val(&f.env),
+    ];
+    let default_topics: Vec<Val> = vec![
+        &f.env,
+        symbol_short!("circle").into_val(&f.env),
+        symbol_short!("default").into_val(&f.env),
+    ];
+    let complete_topics: Vec<Val> = vec![
+        &f.env,
+        symbol_short!("circle").into_val(&f.env),
+        symbol_short!("complete").into_val(&f.env),
+    ];
+    let slash_amt_1: i128 = DEPOSIT - CONTRIB; // 50
+    let expected_cycle1 = vec![
+        &f.env,
+        (
+            f.client.address.clone(),
+            slash_topics.clone(),
+            (id, a.clone(), slash_amt_1).into_val(&f.env),
+        ),
+        (
+            f.client.address.clone(),
+            default_topics.clone(),
+            (id, a.clone()).into_val(&f.env),
+        ),
+        (
+            f.client.address.clone(),
+            slash_topics,
+            (id, b.clone(), slash_amt_1).into_val(&f.env),
+        ),
+        (
+            f.client.address.clone(),
+            default_topics,
+            (id, b.clone()).into_val(&f.env),
+        ),
+        (f.client.address.clone(), settle_topics, settle_data_cycle1),
+        (
+            f.client.address.clone(),
+            complete_topics,
+            id.into_val(&f.env),
+        ),
+    ];
+    assert_eq!(
+        f.env.events().all().filter_by_contract(&f.client.address),
+        expected_cycle1
+    );
+}
+
+// ---- Issue #60: is_member view --------------------------------------------
+
+#[test]
+fn is_member_true_for_member_false_for_non_member() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let outsider = Address::generate(&f.env);
+
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+
+    assert!(f.client.is_member(&id, a));
+    assert!(f.client.is_member(&id, b));
+    assert!(!f.client.is_member(&id, c)); // not yet joined
+    assert!(!f.client.is_member(&id, &outsider));
+}
+
+#[test]
+fn is_member_false_after_leave() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+
+    assert!(f.client.is_member(&id, b));
+    f.client.leave(&id, b);
+    assert!(!f.client.is_member(&id, b));
+}
+
+#[test]
+fn is_member_true_after_circle_activates() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+    // All three are members even after the circle is Active.
+    assert!(f.client.is_member(&id, a));
+    assert!(f.client.is_member(&id, b));
+    assert!(f.client.is_member(&id, c));
+}
+
+// ---- Issue #61: has_paid view ---------------------------------------------
+
+#[test]
+fn has_paid_false_before_contribute() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+    assert!(!f.client.has_paid(&id, a));
+    assert!(!f.client.has_paid(&id, b));
+    assert!(!f.client.has_paid(&id, c));
+}
+
+#[test]
+fn has_paid_true_after_contribute() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    f.client.contribute(&id, a);
+    assert!(f.client.has_paid(&id, a));
+    assert!(!f.client.has_paid(&id, b));
+    assert!(!f.client.has_paid(&id, c));
+
+    f.client.contribute(&id, b);
+    assert!(f.client.has_paid(&id, b));
+}
+
+#[test]
+fn has_paid_false_for_next_cycle_after_settlement() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    for m in f.members.iter() {
+        f.client.contribute(&id, m);
+    }
+    f.client.settle_cycle(&id);
+    // Cycle advanced to 1; nobody has paid cycle 1 yet.
+    assert_eq!(f.client.get_circle(&id).current_cycle, 1);
+    assert!(!f.client.has_paid(&id, a));
+    assert!(!f.client.has_paid(&id, b));
+    assert!(!f.client.has_paid(&id, c));
+}
+
+#[test]
+fn has_paid_correct_across_multiple_cycles() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    // Cycle 0: a and b pay; c skips (deadline settle).
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    assert!(f.client.has_paid(&id, a));
+    assert!(f.client.has_paid(&id, b));
+    assert!(!f.client.has_paid(&id, c));
+    advance_past_deadline(&f, id);
+    f.client.settle_cycle(&id);
+
+    // Cycle 1: has_paid resets; c can contribute again (deposit 50 left).
+    assert!(!f.client.has_paid(&id, a));
+    assert!(!f.client.has_paid(&id, b));
+    f.client.contribute(&id, a);
+    assert!(f.client.has_paid(&id, a));
+    assert!(!f.client.has_paid(&id, b));
+}
