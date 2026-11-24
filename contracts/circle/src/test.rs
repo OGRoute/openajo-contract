@@ -1500,6 +1500,154 @@ fn rejoin_after_leaving_starts_fresh_at_the_end() {
     assert_eq!(f.token.balance(&f.client.address), 0);
 }
 
+// ---- Creator removes a member --------------------------------------------
+
+#[test]
+fn remove_member_refunds_exactly_and_preserves_order() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let d = funded_member(&f);
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &4, &PERIOD);
+    f.client.join(&id, b);
+    f.client.join(&id, c);
+    assert_eq!(f.token.balance(&f.client.address), 3 * DEPOSIT);
+
+    f.client.remove_member(&id, a, b);
+
+    // Exactly the removed member's deposit leaves escrow, back to them.
+    assert_eq!(f.token.balance(b), 1_000);
+    assert_eq!(f.token.balance(a), 1_000 - DEPOSIT);
+    assert_eq!(f.token.balance(c), 1_000 - DEPOSIT);
+    assert_eq!(f.token.balance(&f.client.address), 2 * DEPOSIT);
+    assert_eq!(
+        f.client.get_members(&id),
+        soroban_sdk::vec![&f.env, a.clone(), c.clone()]
+    );
+    assert_eq!(
+        f.client.try_get_member(&id, b),
+        Err(Ok(Error::NotMember.into()))
+    );
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Open);
+
+    // A newcomer takes the vacated slot at the end; the rest keep their
+    // relative order, which is the payout order.
+    f.client.join(&id, &d);
+    assert_eq!(
+        f.client.get_members(&id),
+        soroban_sdk::vec![&f.env, a.clone(), c.clone(), d.clone()]
+    );
+}
+
+#[test]
+fn remove_member_emits_event() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.remove_member(&id, a, b);
+
+    let topics: Vec<Val> = vec![
+        &f.env,
+        symbol_short!("circle").into_val(&f.env),
+        symbol_short!("remove").into_val(&f.env),
+    ];
+    // Filter out the token's transfer event so only the circle's event is
+    // compared: the refund is a sub-invocation of `remove_member`.
+    let events = f.env.events().all().filter_by_contract(&f.client.address);
+    let expected = vec![
+        &f.env,
+        (
+            f.client.address.clone(),
+            topics,
+            (id, b.clone()).into_val(&f.env),
+        ),
+    ];
+    assert_eq!(events, expected);
+}
+
+#[test]
+fn remove_member_requires_creator_auth() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.remove_member(&id, a, b);
+    // The refund is sent by the contract itself, so only the creator's
+    // authorisation of `remove_member` is recorded.
+    assert_eq!(
+        f.env.auths(),
+        std::vec![(
+            a.clone(),
+            invocation(
+                &f.client.address,
+                "remove_member",
+                (id, a.clone(), b.clone()).into_val(&f.env),
+                std::vec![],
+            )
+        )]
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn non_creator_remove_member_panics_not_creator() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.join(&id, c);
+    f.client.remove_member(&id, b, c);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")]
+fn remove_member_on_active_circle_panics_bad_status() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = create_full_circle(&f);
+    f.client.remove_member(&id, a, b);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn creator_cannot_remove_self() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.remove_member(&id, a, a);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn remove_member_non_member_panics_not_member() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.remove_member(&id, a, c);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn remove_member_unknown_circle_panics_not_found() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    f.client.remove_member(&UNKNOWN_ID, a, b);
+}
+
 // ---- Unknown circle ids (#88) ---------------------------------------------
 
 const UNKNOWN_ID: u32 = 999;

@@ -22,7 +22,7 @@ map against these numbers.
 | 8 | `AlreadyPaid` | The member already contributed this cycle |
 | 9 | `Defaulted` | The member has defaulted and cannot contribute |
 | 10 | `NotDue` | `settle_cycle` called before the cycle is due |
-| 11 | `IsCreator` | The creator tried to `leave` (must `cancel`) |
+| 11 | `IsCreator` | The creator tried to `leave` or `remove_member` themselves (must `cancel`) |
 | 12 | `BadParams` | Invalid `create_circle` parameters |
 | 13 | `NotCreator` | A non-creator tried a creator-only action |
 

@@ -210,6 +210,37 @@ impl CircleContract {
             .remove(&DataKey::Member(circle_id, member));
     }
 
+    /// Creator only, while Open: remove a member and refund their deposit.
+    /// The remaining members keep their join order, so payout order is
+    /// unchanged. The creator cannot be removed; they cancel instead.
+    pub fn remove_member(env: Env, circle_id: u32, creator: Address, member: Address) {
+        creator.require_auth();
+        let circle = storage::read_circle(&env, circle_id);
+        validation::validate_is_creator(&circle, &creator, &env);
+        validation::validate_circle_open(&circle, &env);
+        validation::validate_not_creator(&circle, &member, &env);
+        let state = storage::read_member(&env, circle_id, &member);
+        let mut members = storage::read_members(&env, circle_id);
+
+        if state.deposit_remaining > 0 {
+            token::Client::new(&env, &circle.token).transfer(
+                &env.current_contract_address(),
+                &member,
+                &state.deposit_remaining,
+            );
+        }
+        // `remove` shifts the later members down, so join order, which is
+        // payout order, is kept. Mirrors `leave`.
+        if let Some(index) = members.first_index_of(&member) {
+            members.remove(index);
+        }
+        storage::write_members(&env, circle_id, &members);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Member(circle_id, member.clone()));
+        events::remove(&env, circle_id, &member);
+    }
+
     /// Creator only, while Open: cancel and refund every member's deposit.
     pub fn cancel(env: Env, circle_id: u32, creator: Address) {
         creator.require_auth();
