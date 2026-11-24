@@ -1,0 +1,26 @@
+[package]
+name = "circle-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = "0.4"
+soroban-sdk = { version = "28", features = ["testutils"] }
+circle = { path = "../contracts/circle" }
+reputation = { path = "../contracts/reputation" }
+
+# Keep this crate out of the root workspace so plain cargo test/clippy at the
+# repo root never build it (it needs nightly and libFuzzer).
+[workspace]
+
+[[bin]]
+name = "circle_sequence"
+path = "fuzz_targets/circle_sequence.rs"
+test = false
+doc = false
+bench = false

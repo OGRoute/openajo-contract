@@ -1,22 +1,29 @@
 #![allow(deprecated)]
-//! Event emitters. Topics are `(symbol "rep", symbol "<outcome>")` with the
-//! member address as data — the shape the app repo's indexer decodes.
+//! Event emitters. Topics are `(symbol "rep", symbol "<action>")` — the shape
+//! the app repo's indexer decodes.
 //!
 //! See the note in the circle contract's events module on why `publish` is
 //! still used under soroban-sdk 28.
 
 use soroban_sdk::{symbol_short, Address, Env};
 
-pub fn completion(env: &Env, member: &Address) {
+/// Emitted once when the contract is initialized, so monitors can see which
+/// admin took control and detect front-running.
+pub fn init(env: &Env, admin: &Address) {
+    env.events()
+        .publish((symbol_short!("rep"), symbol_short!("init")), admin.clone());
+}
+
+pub fn completion(env: &Env, member: &Address, context: u64) {
     env.events().publish(
         (symbol_short!("rep"), symbol_short!("complete")),
-        member.clone(),
+        (member.clone(), context),
     );
 }
 
-pub fn defaulted(env: &Env, member: &Address) {
+pub fn defaulted(env: &Env, member: &Address, context: u64) {
     env.events().publish(
         (symbol_short!("rep"), symbol_short!("default")),
-        member.clone(),
+        (member.clone(), context),
     );
 }

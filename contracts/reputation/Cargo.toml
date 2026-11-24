@@ -1,6 +1,6 @@
 [package]
 name = "reputation"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 publish = false
 
@@ -10,6 +10,7 @@ doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
+ttl-helpers = { path = "../ttl-helpers" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

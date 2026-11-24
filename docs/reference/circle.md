@@ -10,7 +10,8 @@ the acting address, except `settle_cycle`, which is permissionless by design.
 ### `initialize(admin, reputation)`
 
 Callable once, by anyone. Stores the admin address and the `reputation` contract
-id this instance reports to. Calling it twice reverts with `AlreadyInitialized`.
+id this instance reports to, and emits a `circle`/`init` event with both. Calling
+it twice reverts with `AlreadyInitialized`.
 
 Deploy wiring calls this immediately after deployment — see
 [Deploy to testnet](../building/deploy.md).
@@ -29,7 +30,7 @@ Requires `creator` auth. Reverts `BadParams` unless:
 | `contribution` | `> 0`, raw token units |
 | `deposit` | `>= 0` (may be `0`; see [deposits](../design/deposits-and-default.md)) |
 | `size` | `>= 2` |
-| `period_secs` | `>= 3600` (one hour) |
+| `period_secs` | `>= MIN_PERIOD_SECS` (`3600`, one hour) |
 
 `token` is the SAC address of the asset the circle runs in.
 
@@ -57,8 +58,9 @@ Reverts: `NotMember`, `IsCreator` (the creator cancels instead), `BadStatus`.
 
 ### `cancel(circle_id, creator)`
 
-The creator cancels an `Open` circle, refunding every member's deposit. Moves the
-circle to `Cancelled`. Requires `creator` auth.
+The creator cancels an `Open` circle, refunding every member's deposit. Each
+refunded member's `deposit_remaining` is set to `0`, so `get_member` reflects the
+refund. Moves the circle to `Cancelled`. Requires `creator` auth.
 
 Reverts: `NotCreator`, `BadStatus`.
 
@@ -79,7 +81,49 @@ the circle. See [Settlement](../design/settlement.md) for the full algorithm.
 Reverts: `BadStatus` (not `Active`), `NotDue` (cycle not yet due).
 
 Takes no caller address and performs no auth on the invoker — whoever submits it
-pays the fee and nothing more.
+pays the fee and nothing more. When it reports outcomes to `reputation` it signs
+as the circle contract itself and passes the circle id as the report `context`
+(see [reputation](reputation.md)).
+
+### `set_open_circle_cap(cap)`
+
+Admin only: sets the cap on the number of `Open` circles a single creator may
+have at once. `u32::MAX` means no cap (the initialization default). Requires
+`config.admin` auth.
+
+## Authorization, precisely
+
+Every state-changing function authenticates the acting address with
+`require_auth()` — the sole intentional exception is permissionless
+`settle_cycle`. Each auth entry has the shape
+`[signer, { function: { contract_fn { contract_address, function_name, args } }, sub_invocations: [...] }]`;
+inner calls (token transfers, reports to `reputation`) appear as nested
+sub-invocations under the signer's entry.
+
+| Function | Signs with `require_auth` | Auth tree shape |
+| --- | --- | --- |
+| `initialize(admin, reputation)` | nobody — open to anyone | none |
+| `create_circle(creator, …)` | `creator` | `[creator, { contract_fn { this, `create_circle`, [...] } }]`; plus a token `transfer` sub-invocation under `creator` when `deposit > 0` |
+| `join(circle_id, member)` | `member` | `[member, { contract_fn { this, `join`, [...] } }]`; plus a token `transfer` sub-invocation under `member` when `deposit > 0` |
+| `leave(circle_id, member)` | `member` (not the creator) | `[member, { contract_fn { this, `leave`, [...] } }]`; plus a refund transfer sub-invocation |
+| `cancel(circle_id, creator)` | `creator` | `[creator, { contract_fn { this, `cancel`, [...] } }]`; plus one refund transfer sub-invocation per member |
+| `contribute(circle_id, member)` | `member` | `[member, { contract_fn { this, `contribute`, [...] } }]`; plus a token `transfer` sub-invocation |
+| `settle_cycle(circle_id)` | nobody — permissionless | none; the invoker only pays the fee |
+| `set_open_circle_cap(cap)` | `config.admin` | `[admin, { contract_fn { this, `set_open_circle_cap`, [cap] } }]` |
+| `get_*` views | none — read-only simulations | none |
+
+`settle_cycle` also invokes `reputation::report_completion` /
+`reputation::report_default` as `this` (the circle contract), so those
+cross-contract calls appear as
+`[circle_id, { contract_fn { reputation, ... } }]` entries; `reputation`
+verifies `reporter.require_auth()` — satisfied by contract auth — and its
+reporter allow-list.
+
+The committed `test_snapshots/` files record the exact auth trees the test host
+emits for each test; the auth assertion tests
+(`unauthorized_reporter_panics`, `revoked_reporter_panics`,
+`non_admin_set_reporter_panics`, `non_creator_cancel_panics` and the
+`#should_panic` guard tests) are the source of truth for who must sign.
 
 ## Views
 
@@ -105,10 +149,12 @@ struct Circle {
     contribution: i128,    // raw units, > 0
     deposit: i128,         // raw units, >= 0
     size: u32,             // >= 2
-    period_secs: u64,      // >= 3600
+    period_secs: u64,      // >= MIN_PERIOD_SECS (3600)
     status: CircleStatus,
     started_at: u64,       // 0 while Open
     current_cycle: u32,    // 0-based
+    slashed_total: i128,   // raw units, sum of all slashes in settle_cycle
+    ended_at: u64,         // set on completion or cancel; 0 until then
 }
 
 struct MemberState {

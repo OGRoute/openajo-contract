@@ -1,0 +1,25 @@
+# cargo-audit configuration (read automatically from .cargo/audit.toml).
+#
+# `cargo audit` fails the build on a RustSec vulnerability. The entries below
+# are transitive advisories we cannot resolve from this repository, because the
+# affected crates are pinned by soroban-sdk's dependency tree, not by us. Each
+# is kept here explicitly (rather than silenced wholesale) so the ignore list
+# stays small, auditable, and easy to drop once the SDK moves on.
+
+[advisories]
+ignore = [
+  # RUSTSEC-2026-0387 — crypto-bigint < 0.7.6: timing variability in
+  # operations intended to be constant-time. Pulled in only transitively:
+  # soroban-sdk 28 -> soroban-env-host -> {k256, p256} -> elliptic-curve 0.13
+  # -> crypto-bigint 0.5.5. The fix (crypto-bigint 0.7.6) requires
+  # elliptic-curve to cross a major version, which soroban-sdk 28 has not done,
+  # so no lockfile bump can reach it today. It affects host-side signature
+  # math used in tests, not the wasm the contracts ship. Remove this once
+  # soroban-sdk ships an elliptic-curve/crypto-bigint 0.7 line.
+  "RUSTSEC-2026-0387",
+]
+
+# Unmaintained-crate warnings (derivative, paste — both pulled in by
+# soroban-sdk) are informational and do not fail the build; they are left to
+# surface rather than be ignored, so they disappear on their own when the SDK
+# drops them.

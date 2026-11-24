@@ -1,0 +1,4 @@
+target/
+.stellar/
+.git/
+out/

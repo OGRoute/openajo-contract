@@ -51,6 +51,14 @@ The admin can revoke a reporter at any time by setting `allowed` to `false`, aft
 which that contract's reports are rejected. This is covered by the
 `revoked_reporter_panics` test.
 
+Reporter flags live in **persistent** storage (the admin stays in instance
+storage). Keeping them out of instance means a growing allow-list is not loaded on
+every invocation. Each `set_reporter` write extends the flag's TTL, and every
+accepted report refreshes the reporting flag too, so an active reporter does not
+silently expire. An existing deployment upgrading to this layout must call
+`set_reporter` again for each reporter after the upgrade — the old instance
+entries are not read by the new code. See [Storage & TTL](../reference/storage.md).
+
 ## What gets reported, and when
 
 `circle` calls into `reputation` at exactly two moments, both inside
@@ -65,6 +73,40 @@ A member who merely missed a contribution their bond could absorb is **not**
 reported — only genuine default is. And an unknown address reads back as
 `{ completed: 0, defaulted: 0 }` rather than erroring, so callers never have to
 special-case "never seen before" (`unknown_member_reads_zero`).
+
+Both report functions take a `context` — the reporting circle's id — and put it
+in the outcome event. Counters stay additive, so an outcome can be traced back to
+a circle for disputes and audits without changing the aggregate record.
+
+## Permanence, TTL, and restoration
+
+Soroban persistent entries are not infinite: every entry has a TTL, and rent is
+paid by extending it. A record that is written once and then never touched would
+otherwise be archived after the default ~30 day window, which is not what
+"permanent history" should mean.
+
+The contract takes three measures:
+
+1. **A long TTL for records.** `Rep(Address)` entries are extended to the long
+   (~175 day) TTL window on every write, not the short ~30 day workflow window.
+   A member can be quiet for months and still read back correctly.
+2. **Reads refresh the TTL.** `get_reputation` extends an existing record's TTL
+   before returning it. Any flow that submits the read as a transaction keeps the
+   record alive. A read-only RPC simulation does not persist TTL changes, so this
+   is best-effort, not a substitute for restoration.
+3. **Archived is not deleted.** If an entry still passes the long window with no
+   activity, Soroban archives it rather than deleting it. The history remains in
+   the network's archived state and is restored by including the `Rep(member)`
+   persistent ledger entry in a `RestoreFootprintOp` (the app's
+   `restoreFootprint` RPC call) before reading. The app should treat a zero read
+   for an address it believes has history as "possibly archived", attempt a
+   restore, then re-read. This is documented here because restoration is a
+   transaction-level operation; the contract cannot restore an entry it cannot
+   access.
+
+The `reading_a_record_refreshes_its_long_ttl` test writes a record, advances the
+ledger until only one ledger of TTL remains, reads it, and then advances past the
+original expiry to prove the refreshed record is still readable.
 
 ## What it deliberately does not do
 
