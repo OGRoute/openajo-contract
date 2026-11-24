@@ -14,6 +14,15 @@
 
 use soroban_sdk::{symbol_short, Address, Env};
 
+/// Emitted once when the contract is initialized, with the admin that took
+/// control and the reputation contract it reports to.
+pub fn init(env: &Env, admin: &Address, reputation: &Address) {
+    env.events().publish(
+        (symbol_short!("circle"), symbol_short!("init")),
+        (admin.clone(), reputation.clone()),
+    );
+}
+
 pub fn create(env: &Env, id: u32, creator: &Address) {
     env.events().publish(
         (symbol_short!("circle"), symbol_short!("create")),
@@ -54,10 +63,17 @@ pub fn defaulted(env: &Env, id: u32, member: &Address) {
     );
 }
 
-pub fn payout(env: &Env, id: u32, recipient: &Address, amount: i128, cycle: u32) {
+pub fn payout(env: &Env, id: u32, recipient: &Address, amount: i128, cycle: u32, fee: i128) {
     env.events().publish(
         (symbol_short!("circle"), symbol_short!("payout")),
-        (id, recipient.clone(), amount, cycle),
+        (id, recipient.clone(), amount, cycle, fee),
+    );
+}
+
+pub fn swap_pos(env: &Env, id: u32, a: &Address, b: &Address) {
+    env.events().publish(
+        (symbol_short!("circle"), symbol_short!("swappos")),
+        (id, a.clone(), b.clone()),
     );
 }
 

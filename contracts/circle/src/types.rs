@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address};
+use soroban_sdk::{contracttype, Address, BytesN};
 
 #[contracttype]
 #[derive(Clone)]
@@ -15,6 +15,8 @@ pub enum DataKey {
     Member(u32, Address),
     /// bool contributed for (circle, cycle, address) — temporary storage.
     Paid(u32, u32, Address),
+    /// u32 count of Open circles for a creator — persistent storage.
+    OpenCircles(Address),
 }
 
 #[contracttype]
@@ -22,6 +24,11 @@ pub enum DataKey {
 pub struct GlobalConfig {
     pub admin: Address,
     pub reputation: Address,
+    pub open_circle_cap: u32,
+    /// Fee in basis points (hundredths of a percent). 0 = no fee.
+    pub fee_bps: u32,
+    /// Recipient of the protocol fee. Only meaningful when fee_bps > 0.
+    pub fee_recipient: Address,
 }
 
 #[contracttype]
@@ -47,13 +54,23 @@ pub struct Circle {
     pub deposit: i128,
     /// Number of members required to activate. >= 2.
     pub size: u32,
-    /// Seconds per cycle. >= 3600.
+    /// Seconds per cycle. >= [`MIN_PERIOD_SECS`](crate::MIN_PERIOD_SECS).
     pub period_secs: u64,
     pub status: CircleStatus,
     /// Ledger timestamp at activation; 0 while Open.
     pub started_at: u64,
     /// 0-based.
     pub current_cycle: u32,
+    /// Sum of every slash taken from members' deposits by `settle_cycle`,
+    /// raw token units. 0 until the first missed contribution.
+    pub slashed_total: i128,
+    /// Ledger timestamp at completion or cancellation; 0 while Open or Active.
+    pub ended_at: u64,
+    /// Optional IPFS/metadata hash for the circle. Set at creation; immutable.
+    pub meta: Option<BytesN<32>>,
+    /// Scheduled activation timestamp. When non-zero the circle activates at
+    /// max(join_timestamp, start_at) instead of immediately on the last join.
+    pub start_at: u64,
 }
 
 #[contracttype]
