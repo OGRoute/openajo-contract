@@ -146,6 +146,10 @@
                 },
                 {
                   "u64": "3600"
+                },
+                "void",
+                {
+                  "u64": "0"
                 }
               ]
             }
@@ -432,11 +436,9 @@
                   },
                   {
                     "key": {
-                      "symbol": "grace_secs"
+                      "symbol": "meta"
                     },
-                    "val": {
-                      "u64": "0"
-                    }
+                    "val": "void"
                   },
                   {
                     "key": {
@@ -460,6 +462,14 @@
                     },
                     "val": {
                       "i128": "0"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "start_at"
+                    },
+                    "val": {
+                      "u64": "0"
                     }
                   },
                   {
@@ -639,6 +649,22 @@
                           {
                             "key": {
                               "symbol": "admin"
+                            },
+                            "val": {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "fee_bps"
+                            },
+                            "val": {
+                              "u32": 0
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "fee_recipient"
                             },
                             "val": {
                               "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"

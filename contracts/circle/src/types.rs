@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address};
+use soroban_sdk::{contracttype, Address, BytesN};
 
 #[contracttype]
 #[derive(Clone)]
@@ -25,6 +25,10 @@ pub struct GlobalConfig {
     pub admin: Address,
     pub reputation: Address,
     pub open_circle_cap: u32,
+    /// Fee in basis points (hundredths of a percent). 0 = no fee.
+    pub fee_bps: u32,
+    /// Recipient of the protocol fee. Only meaningful when fee_bps > 0.
+    pub fee_recipient: Address,
 }
 
 #[contracttype]
@@ -64,6 +68,11 @@ pub struct Circle {
     pub slashed_total: i128,
     /// Ledger timestamp at completion or cancellation; 0 while Open or Active.
     pub ended_at: u64,
+    /// Optional IPFS/metadata hash for the circle. Set at creation; immutable.
+    pub meta: Option<BytesN<32>>,
+    /// Scheduled activation timestamp. When non-zero the circle activates at
+    /// max(join_timestamp, start_at) instead of immediately on the last join.
+    pub start_at: u64,
 }
 
 #[contracttype]

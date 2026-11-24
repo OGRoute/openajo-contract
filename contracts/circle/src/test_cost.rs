@@ -61,9 +61,16 @@ fn measure() -> Vec<Cost> {
     let f: Fixture = setup();
     let [a, b, c] = &f.members;
 
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     costs.push(last(&f.env, "create_circle"));
     f.client.join(&id, b);
     costs.push(last(&f.env, "join"));
@@ -73,9 +80,16 @@ fn measure() -> Vec<Cost> {
     costs.push(last(&f.env, "contribute"));
 
     // A second, still-forming circle for leave and cancel.
-    let id2 = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id2 = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id2, b);
     f.client.leave(&id2, b);
     costs.push(last(&f.env, "leave"));

@@ -89,6 +89,8 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
     }
 
     // 2) Pay the first member in join order who is active and unpaid.
+    //    The protocol fee is deducted only from the recipient's payout, not
+    //    from the fallback redistribution (edge case with no eligible recipient).
     let mut recipient: Option<Address> = None;
     for m in members.iter() {
         let st = crate::storage::read_member(&env, circle_id, &m);
@@ -100,13 +102,22 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
     let settle_recipient = recipient.clone();
     match recipient {
         Some(r) => {
-            if pot > 0 {
-                tok.transfer(&this, &r, &pot);
+            let fee = if config.fee_bps > 0 {
+                pot * config.fee_bps as i128 / 10_000
+            } else {
+                0
+            };
+            let payout_pot = pot - fee;
+            if fee > 0 {
+                tok.transfer(&this, &config.fee_recipient, &fee);
+            }
+            if payout_pot > 0 {
+                tok.transfer(&this, &r, &payout_pot);
             }
             let mut st = crate::storage::read_member(&env, circle_id, &r);
             st.received = true;
             crate::storage::write_member(&env, circle_id, &r, &st);
-            crate::events::payout(&env, circle_id, &r, pot, cycle);
+            crate::events::payout(&env, circle_id, &r, payout_pot, cycle, fee);
         }
         None => {
             // Edge: this settlement's defaults eliminated every remaining

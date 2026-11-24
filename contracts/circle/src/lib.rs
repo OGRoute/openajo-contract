@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
 //! OpenAjo `circle` — the full ROSCA (ajo/esusu/adashe) lifecycle.
 //!
 //! One instance manages many circles. A circle escrows a flat deposit from
@@ -19,7 +20,7 @@ mod validation;
 
 use errors::Error;
 use soroban_sdk::{
-    contract, contractclient, contractimpl, panic_with_error, token, vec, Address, Env, String, Vec,
+    contract, contractclient, contractimpl, panic_with_error, token, vec, Address, BytesN, Env, String, Vec,
 };
 use ttl_helpers::{extend_instance, extend_persistent};
 use types::{Circle, CircleStatus, DataKey, GlobalConfig, MemberState};
@@ -27,12 +28,16 @@ use types::{Circle, CircleStatus, DataKey, GlobalConfig, MemberState};
 /// Maximum number of circles returned by `get_circles` per call.
 pub const MAX_PAGE_SIZE: u32 = 50;
 
+
 /// Shortest cycle a circle may run, in seconds (one hour).
 ///
 /// `create_circle` reverts with `BadParams` when `period_secs` is below this.
 /// The settlement deadline of every cycle is `started_at + (cycle + 1) *
 /// period_secs`, so this is also the shortest time members get to contribute.
 pub const MIN_PERIOD_SECS: u64 = 3600;
+
+/// Hard cap on the protocol fee: 10 % (1 000 basis points).
+pub const MAX_FEE_BPS: u32 = 1_000;
 
 /// Minimal interface of the `reputation` contract (same workspace).
 /// `context` is this circle's id, recorded in the reputation event so an
@@ -59,6 +64,8 @@ impl CircleContract {
                 admin: admin.clone(),
                 reputation: reputation.clone(),
                 open_circle_cap: u32::MAX,
+                fee_bps: 0,
+                fee_recipient: admin.clone(),
             },
         );
         env.storage().instance().set(&DataKey::Count, &0u32);
@@ -78,6 +85,7 @@ impl CircleContract {
     }
 
     /// Creator only: open a new circle and escrow the creator's deposit.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_circle(
         env: Env,
         creator: Address,
@@ -86,6 +94,8 @@ impl CircleContract {
         deposit: i128,
         size: u32,
         period_secs: u64,
+        meta: Option<BytesN<32>>,
+        start_at: u64,
     ) -> u32 {
         create_circle_inner(
             env,
@@ -96,6 +106,8 @@ impl CircleContract {
             size,
             period_secs,
             0,
+            meta,
+            start_at,
         )
     }
 
@@ -110,6 +122,8 @@ impl CircleContract {
         size: u32,
         period_secs: u64,
         grace_secs: u64,
+        meta: Option<BytesN<32>>,
+        start_at: u64,
     ) -> u32 {
         create_circle_inner(
             env,
@@ -120,6 +134,8 @@ impl CircleContract {
             size,
             period_secs,
             grace_secs,
+            meta,
+            start_at,
         )
     }
 
@@ -156,7 +172,8 @@ impl CircleContract {
 
         if members.len() == circle.size {
             circle.status = CircleStatus::Active;
-            circle.started_at = env.ledger().timestamp();
+            let now = env.ledger().timestamp();
+            circle.started_at = core::cmp::max(now, circle.start_at);
             events::start(&env, circle_id);
             // Circle activated: decrement creator's open circle count.
             let open_key = DataKey::OpenCircles(circle.creator.clone());
@@ -265,6 +282,9 @@ impl CircleContract {
         member.require_auth();
         let circle = storage::read_circle(&env, circle_id);
         validation::validate_circle_active(&circle, &env);
+        if env.ledger().timestamp() < circle.started_at {
+            panic_with_error!(&env, Error::NotStarted);
+        }
         let state = storage::read_member(&env, circle_id, &member);
         validation::validate_not_defaulted(&state, &env);
         let key = DataKey::Paid(circle_id, circle.current_cycle, member.clone());
@@ -284,6 +304,42 @@ impl CircleContract {
     /// the indexer (or any member) advance a circle whose deadline passed.
     pub fn settle_cycle(env: Env, circle_id: u32) {
         settlement::settle_cycle(env, circle_id);
+    }
+
+    /// Admin only: set the protocol fee. `fee_bps` must not exceed
+    /// [`MAX_FEE_BPS`] (10 %). `fee_recipient` receives the fee each
+    /// settlement. Requires `config.admin` auth.
+    pub fn set_fee(env: Env, fee_bps: u32, fee_recipient: Address) {
+        let mut config: GlobalConfig = storage::read_config(&env);
+        config.admin.require_auth();
+        if fee_bps > MAX_FEE_BPS {
+            panic_with_error!(&env, Error::FeeTooHigh);
+        }
+        config.fee_bps = fee_bps;
+        config.fee_recipient = fee_recipient;
+        env.storage().instance().set(&DataKey::Config, &config);
+        extend_instance(&env);
+    }
+
+    /// Swap the payout positions of two members in an Open or Active circle.
+    /// Both members must auth. Neither may have already received a payout or
+    /// defaulted.
+    pub fn swap_positions(env: Env, circle_id: u32, a: Address, b: Address) {
+        a.require_auth();
+        b.require_auth();
+        let st_a = storage::read_member(&env, circle_id, &a);
+        let st_b = storage::read_member(&env, circle_id, &b);
+        if st_a.received || st_a.defaulted || st_b.received || st_b.defaulted {
+            panic_with_error!(&env, Error::CannotSwap);
+        }
+        let mut members = storage::read_members(&env, circle_id);
+        let idx_a = members.first_index_of(&a).unwrap();
+        let idx_b = members.first_index_of(&b).unwrap();
+        members.set(idx_a, b.clone());
+        members.set(idx_b, a.clone());
+        storage::write_members(&env, circle_id, &members);
+        events::swap_pos(&env, circle_id, &a, &b);
+        extend_instance(&env);
     }
 
     // ---- Views ------------------------------------------------------------
@@ -388,6 +444,8 @@ fn create_circle_inner(
     size: u32,
     period_secs: u64,
     grace_secs: u64,
+    meta: Option<BytesN<32>>,
+    start_at: u64,
 ) -> u32 {
     creator.require_auth();
     validation::validate_create_params(contribution, deposit, size, period_secs, &env);
@@ -422,6 +480,8 @@ fn create_circle_inner(
         current_cycle: 0,
         slashed_total: 0,
         ended_at: 0,
+        meta,
+        start_at,
     };
     storage::write_circle(&env, id, &circle);
     storage::write_members(&env, id, &vec![&env, creator.clone()]);
@@ -442,6 +502,7 @@ fn create_circle_inner(
     events::create(&env, id, &creator);
     id
 }
+
 
 mod test;
 

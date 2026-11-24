@@ -154,9 +154,16 @@ fn supply_is_conserved_through_leaving_and_cancelling() {
     let [a, b, c] = &f.members;
     let minted = circulating(&f);
 
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     assert_conserved(&f, minted);
 
     f.client.join(&id, b);
@@ -213,6 +220,8 @@ mod generated {
             &deposit,
             &(size as u32),
             &3600,
+            &None,
+            &0u64,
         );
         for m in f.members.iter().skip(1) {
             f.client.join(&id, m);
