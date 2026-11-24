@@ -75,6 +75,7 @@ impl CircleContract {
     }
 
     /// Creator only: open a new circle and escrow the creator's deposit.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_circle(
         env: Env,
         creator: Address,
@@ -83,6 +84,7 @@ impl CircleContract {
         deposit: i128,
         size: u32,
         period_secs: u64,
+        auto_settle: bool,
     ) -> u32 {
         creator.require_auth();
         validation::validate_create_params(contribution, deposit, size, period_secs, &env);
@@ -116,6 +118,7 @@ impl CircleContract {
             current_cycle: 0,
             slashed_total: 0,
             ended_at: 0,
+            auto_settle,
         };
         storage::write_circle(&env, id, &circle);
         storage::write_members(&env, id, &vec![&env, creator.clone()]);
@@ -172,6 +175,11 @@ impl CircleContract {
             circle.status = CircleStatus::Active;
             circle.started_at = env.ledger().timestamp();
             events::start(&env, circle_id);
+            // Shuffle join-order into a random payout order using PRNG.
+            let mut payout_order = members.clone();
+            env.prng().shuffle(&mut payout_order);
+            storage::write_payout_order(&env, circle_id, &payout_order);
+            events::order_set(&env, circle_id, &payout_order);
             // Circle activated: decrement creator's open circle count.
             let open_key = DataKey::OpenCircles(circle.creator.clone());
             let open_count: u32 = env.storage().persistent().get(&open_key).unwrap_or(0);
@@ -260,13 +268,52 @@ impl CircleContract {
         );
         env.storage().temporary().set(&key, &true);
         events::contrib(&env, circle_id, &member, circle.current_cycle);
+
+        if circle.auto_settle {
+            let members = storage::read_members(&env, circle_id);
+            let cycle = circle.current_cycle;
+            let all_paid = members.iter().all(|m| {
+                let st = storage::read_member(&env, circle_id, &m);
+                st.defaulted || storage::is_paid(&env, circle_id, cycle, &m)
+            });
+            if all_paid {
+                settlement::settle_cycle(env, circle_id, member);
+            }
+        }
     }
 
-    /// Permissionless crank: anyone may settle a due cycle. Funds only move
-    /// according to protocol rules, so no auth is required — this is what lets
-    /// the indexer (or any member) advance a circle whose deadline passed.
-    pub fn settle_cycle(env: Env, circle_id: u32) {
-        settlement::settle_cycle(env, circle_id);
+    /// Settle a due cycle. `keeper` is credited a 1-unit reward from slashed
+    /// funds when any slash occurred this cycle. Requires `keeper` auth.
+    pub fn settle_cycle(env: Env, circle_id: u32, keeper: Address) {
+        settlement::settle_cycle(env, circle_id, keeper);
+    }
+
+    /// Creator only, while Active and in cycle 0: override the PRNG payout
+    /// order. `order` must be a permutation of the current member list.
+    pub fn set_payout_order(env: Env, circle_id: u32, creator: Address, order: Vec<Address>) {
+        creator.require_auth();
+        let circle = storage::read_circle(&env, circle_id);
+        if circle.creator != creator {
+            panic_with_error!(&env, Error::NotCreator);
+        }
+        if circle.status != CircleStatus::Active {
+            panic_with_error!(&env, Error::BadStatus);
+        }
+        if circle.current_cycle != 0 {
+            panic_with_error!(&env, Error::BadParams);
+        }
+        // Validate that `order` is a permutation of the members list.
+        let members = storage::read_members(&env, circle_id);
+        if order.len() != members.len() {
+            panic_with_error!(&env, Error::BadParams);
+        }
+        for m in members.iter() {
+            if !order.contains(&m) {
+                panic_with_error!(&env, Error::BadParams);
+            }
+        }
+        storage::write_payout_order(&env, circle_id, &order);
+        events::order_set(&env, circle_id, &order);
     }
 
     // ---- Views ------------------------------------------------------------
@@ -290,6 +337,10 @@ impl CircleContract {
 
     pub fn total_circles(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::Count).unwrap_or(0)
+    }
+
+    pub fn get_payout_order(env: Env, circle_id: u32) -> Vec<Address> {
+        storage::read_payout_order(&env, circle_id)
     }
 }
 

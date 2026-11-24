@@ -9,8 +9,10 @@ use crate::errors::Error;
 use crate::types::{CircleStatus, GlobalConfig};
 use crate::ReputationClient;
 
-/// Settle a due cycle.
-pub fn settle_cycle(env: Env, circle_id: u32) {
+/// Settle a due cycle. `keeper` is the address that triggered settlement and
+/// receives a 1-unit reward from slashed funds when any slash occurred.
+pub fn settle_cycle(env: Env, circle_id: u32, keeper: Address) {
+    keeper.require_auth();
     let mut circle = crate::storage::read_circle(&env, circle_id);
     if circle.status != CircleStatus::Active {
         panic_with_error!(&env, Error::BadStatus);
@@ -42,6 +44,7 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
     // 1) Collect the pot: contributions already escrowed by payers, plus
     //    slashes from active members who missed.
     let mut pot: i128 = 0;
+    let mut cycle_slash: i128 = 0;
     let mut payers: Vec<Address> = vec![&env];
     let mut slashed_who: Vec<Address> = vec![&env];
     let mut slashed_amt: Vec<i128> = vec![&env];
@@ -58,6 +61,7 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
             if slash > 0 {
                 st.deposit_remaining -= slash;
                 pot += slash;
+                cycle_slash += slash;
                 circle.slashed_total += slash;
                 slashed_who.push_back(m.clone());
                 slashed_amt.push_back(slash);
@@ -72,9 +76,19 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
         }
     }
 
-    // 2) Pay the first member in join order who is active and unpaid.
+    // 1b) Pay keeper a 1-unit incentive from slashed funds when any slash occurred.
+    // Skip when nobody contributed: the None/n==0 branch returns full slash amounts
+    // back to the slashed members, so removing 1 unit here would leave the contract 1 short.
+    if cycle_slash > 0 && pot > 1 && !payers.is_empty() {
+        tok.transfer(&this, &keeper, &1i128);
+        pot -= 1;
+        crate::events::keeper_reward(&env, circle_id, &keeper, 1i128);
+    }
+
+    // 2) Pay the first member in payout order who is active and unpaid.
+    let payout_order = crate::storage::read_payout_order(&env, circle_id);
     let mut recipient: Option<Address> = None;
-    for m in members.iter() {
+    for m in payout_order.iter() {
         let st = crate::storage::read_member(&env, circle_id, &m);
         if !st.received && !st.defaulted {
             recipient = Some(m);
@@ -127,7 +141,7 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
     // 3) Complete when no active member is still owed a payout; otherwise
     //    advance the cycle.
     let mut done = true;
-    for m in members.iter() {
+    for m in payout_order.iter() {
         let st = crate::storage::read_member(&env, circle_id, &m);
         if !st.defaulted && !st.received {
             done = false;
@@ -137,7 +151,7 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
     if done {
         circle.status = CircleStatus::Completed;
         circle.ended_at = now;
-        for m in members.iter() {
+        for m in payout_order.iter() {
             let mut st = crate::storage::read_member(&env, circle_id, &m);
             if !st.defaulted {
                 if st.deposit_remaining > 0 {

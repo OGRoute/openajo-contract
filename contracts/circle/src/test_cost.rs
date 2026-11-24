@@ -63,7 +63,7 @@ fn measure() -> Vec<Cost> {
 
     let id = f
         .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD, &false);
     costs.push(last(&f.env, "create_circle"));
     f.client.join(&id, b);
     costs.push(last(&f.env, "join"));
@@ -75,7 +75,7 @@ fn measure() -> Vec<Cost> {
     // A second, still-forming circle for leave and cancel.
     let id2 = f
         .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD, &false);
     f.client.join(&id2, b);
     f.client.leave(&id2, b);
     costs.push(last(&f.env, "leave"));
@@ -85,7 +85,7 @@ fn measure() -> Vec<Cost> {
     // Settle the first circle's first cycle once it is overdue.
     let deadline = f.client.cycle_deadline(&id);
     f.env.ledger().with_mut(|l| l.timestamp = deadline + 1);
-    f.client.settle_cycle(&id);
+    f.client.settle_cycle(&id, &f.members[0]);
     costs.push(last(&f.env, "settle_cycle"));
 
     costs

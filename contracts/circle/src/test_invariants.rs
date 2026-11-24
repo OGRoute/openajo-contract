@@ -73,7 +73,7 @@ fn supply_is_conserved_at_every_step_of_a_clean_circle() {
             f.client.contribute(&id, m);
             assert_conserved(&f, minted);
         }
-        f.client.settle_cycle(&id);
+        f.client.settle_cycle(&id, &f.members[0]);
         assert_conserved(&f, minted);
     }
 
@@ -100,7 +100,7 @@ fn escrow_equals_remaining_deposits_between_cycles() {
                 i + 1
             );
         }
-        f.client.settle_cycle(&id);
+        f.client.settle_cycle(&id, &f.members[0]);
         if cycle < 2 {
             assert_escrow_is_only_deposits(&f, id);
             assert_eq!(deposits_remaining(&f, id), 3 * DEPOSIT);
@@ -117,13 +117,20 @@ fn supply_is_conserved_when_a_member_is_slashed_and_defaults() {
     let [a, b, c] = &f.members;
     let minted = circulating(&f);
     let id = create_full_circle(&f);
+    // Restore join order: a=cycle0, b=cycle1 so circle completes in 2 cycles
+    // when c defaults.
+    f.client.set_payout_order(
+        &id,
+        a,
+        &soroban_sdk::vec![&f.env, a.clone(), b.clone(), c.clone()],
+    );
 
     // Cycle 0: c misses. The slash covers the shortfall from c's deposit, so
     // the recipient is paid in full without new tokens appearing.
     f.client.contribute(&id, a);
     f.client.contribute(&id, b);
     advance_past_deadline(&f, id);
-    f.client.settle_cycle(&id);
+    f.client.settle_cycle(&id, &f.members[0]);
     assert_conserved(&f, minted);
     assert_escrow_is_only_deposits(&f, id);
     assert_eq!(
@@ -135,7 +142,7 @@ fn supply_is_conserved_when_a_member_is_slashed_and_defaults() {
     f.client.contribute(&id, a);
     f.client.contribute(&id, b);
     advance_past_deadline(&f, id);
-    f.client.settle_cycle(&id);
+    f.client.settle_cycle(&id, &f.members[0]);
     assert_conserved(&f, minted);
 
     let st = f.client.get_member(&id, c);
@@ -156,7 +163,7 @@ fn supply_is_conserved_through_leaving_and_cancelling() {
 
     let id = f
         .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD, &false);
     assert_conserved(&f, minted);
 
     f.client.join(&id, b);
@@ -213,6 +220,7 @@ mod generated {
             &deposit,
             &(size as u32),
             &3600,
+            &false,
         );
         for m in f.members.iter().skip(1) {
             f.client.join(&id, m);
@@ -238,7 +246,7 @@ mod generated {
             if !all_paid {
                 advance_past_deadline_sized(&f, id);
             }
-            f.client.settle_cycle(&id);
+            f.client.settle_cycle(&id, &f.members[0]);
             assert_eq!(
                 circulating(&f) + escrowed(&f),
                 minted,

@@ -79,3 +79,17 @@ pub fn cancel(env: &Env, id: u32) {
     env.events()
         .publish((symbol_short!("circle"), symbol_short!("cancel")), id);
 }
+
+pub fn keeper_reward(env: &Env, id: u32, keeper: &Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("circle"), symbol_short!("kpr_rwrd")),
+        (id, keeper.clone(), amount),
+    );
+}
+
+pub fn order_set(env: &Env, id: u32, order: &soroban_sdk::Vec<Address>) {
+    env.events().publish(
+        (symbol_short!("circle"), symbol_short!("ordr_set")),
+        (id, order.clone()),
+    );
+}

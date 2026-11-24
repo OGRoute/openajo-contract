@@ -17,6 +17,8 @@ pub enum DataKey {
     Paid(u32, u32, Address),
     /// u32 count of Open circles for a creator — persistent storage.
     OpenCircles(Address),
+    /// Vec<Address> payout order set at activation — persistent storage.
+    PayoutOrder(u32),
 }
 
 #[contracttype]
@@ -62,6 +64,9 @@ pub struct Circle {
     pub slashed_total: i128,
     /// Ledger timestamp at completion or cancellation; 0 while Open or Active.
     pub ended_at: u64,
+    /// When true, `contribute` automatically triggers `settle_cycle` once every
+    /// active member has paid, using the contributor as the keeper.
+    pub auto_settle: bool,
 }
 
 #[contracttype]

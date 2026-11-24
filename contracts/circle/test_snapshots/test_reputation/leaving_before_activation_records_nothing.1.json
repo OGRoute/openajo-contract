@@ -146,6 +146,9 @@
                 },
                 {
                   "u64": "3600"
+                },
+                {
+                  "bool": false
                 }
               ]
             }
@@ -456,6 +459,14 @@
               "durability": "persistent",
               "val": {
                 "map": [
+                  {
+                    "key": {
+                      "symbol": "auto_settle"
+                    },
+                    "val": {
+                      "bool": false
+                    }
+                  },
                   {
                     "key": {
                       "symbol": "contribution"
