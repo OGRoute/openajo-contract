@@ -2048,3 +2048,113 @@ fn initialize_emits_init_event_with_admin_and_reputation() {
     ];
     assert_eq!(env.events().all(), expected);
 }
+
+// ---- TTL extension ---------------------------------------------------------
+
+#[test]
+fn create_circle_extends_persistent_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    let f = setup();
+    let a = &f.members[0];
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    for key in [
+        crate::types::DataKey::Circle(id),
+        crate::types::DataKey::Members(id),
+        crate::types::DataKey::Member(id, a.clone()),
+        crate::types::DataKey::OpenCircles(a.clone()),
+    ] {
+        let ttl = f.env.as_contract(&f.client.address, || {
+            f.env.storage().persistent().get_ttl(&key)
+        });
+        assert!(
+            ttl >= 518_400,
+            "create_circle did not extend persistent TTL"
+        );
+    }
+}
+
+#[test]
+fn join_extends_persistent_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    for key in [
+        crate::types::DataKey::Circle(id),
+        crate::types::DataKey::Members(id),
+        crate::types::DataKey::Member(id, b.clone()),
+    ] {
+        let ttl = f.env.as_contract(&f.client.address, || {
+            f.env.storage().persistent().get_ttl(&key)
+        });
+        assert!(ttl >= 518_400, "join did not extend persistent TTL");
+    }
+}
+
+#[test]
+fn leave_extends_persistent_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.leave(&id, b);
+    let key = crate::types::DataKey::Members(id);
+    let ttl = f.env.as_contract(&f.client.address, || {
+        f.env.storage().persistent().get_ttl(&key)
+    });
+    assert!(ttl >= 518_400, "leave did not extend persistent TTL");
+}
+
+#[test]
+fn cancel_extends_persistent_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.cancel(&id, a);
+    for key in [
+        crate::types::DataKey::Circle(id),
+        crate::types::DataKey::Member(id, a.clone()),
+        crate::types::DataKey::Member(id, b.clone()),
+        crate::types::DataKey::OpenCircles(a.clone()),
+    ] {
+        let ttl = f.env.as_contract(&f.client.address, || {
+            f.env.storage().persistent().get_ttl(&key)
+        });
+        assert!(ttl >= 518_400, "cancel did not extend persistent TTL");
+    }
+}
+
+#[test]
+fn settle_cycle_extends_persistent_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    let f = setup();
+    let id = create_full_circle(&f);
+    for m in f.members.iter() {
+        f.client.contribute(&id, m);
+    }
+    f.client.settle_cycle(&id);
+    for m in f.members.iter() {
+        let key = crate::types::DataKey::Member(id, m.clone());
+        let ttl = f.env.as_contract(&f.client.address, || {
+            f.env.storage().persistent().get_ttl(&key)
+        });
+        assert!(ttl >= 518_400, "settle_cycle did not extend persistent TTL");
+    }
+    let key = crate::types::DataKey::Circle(id);
+    let ttl = f.env.as_contract(&f.client.address, || {
+        f.env.storage().persistent().get_ttl(&key)
+    });
+    assert!(ttl >= 518_400, "settle_cycle did not extend persistent TTL");
+}
