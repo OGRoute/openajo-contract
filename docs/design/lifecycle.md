@@ -29,8 +29,10 @@ While a circle is `Open`:
 * Anyone may **`join`**, escrowing the deposit and taking the next slot in join
   order.
 * A non-creator member may **`leave`** and get their deposit back in full.
+* The creator may **`remove_member`** anyone but themselves, refunding that
+  member's deposit; the remaining members keep their join order.
 * The creator may **`cancel`**, refunding every member.
-* The creator may **not** leave — leaving as the creator would orphan the circle,
+* The creator may **not** leave or be removed — that would orphan the circle,
   so they must `cancel` instead (`IsCreator`).
 
 **Join order is the payout order.** The member at index 0 receives the pot first,

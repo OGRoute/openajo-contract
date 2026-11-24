@@ -12,8 +12,8 @@ Include: the affected contract/function, reproduction steps, and impact.
 
 ## Scope of greatest concern
 
-- Auth bypass on any user action (`create_circle`, `join`, `leave`, `cancel`,
-  `contribute`)
+- Auth bypass on any user action (`create_circle`, `join`, `leave`,
+  `remove_member`, `cancel`, `contribute`)
 - `settle_cycle` manipulation: double payout, wrong recipient, slashing more
   than `deposit_remaining`, settlement before due
 - Cross-contract reporter spoofing against `reputation`
