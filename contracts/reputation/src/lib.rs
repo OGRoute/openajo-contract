@@ -16,7 +16,7 @@ mod events;
 mod types;
 
 use errors::Error;
-use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env, String};
 use ttl_helpers::{extend_instance, extend_persistent, extend_persistent_long};
 use types::{DataKey, Reputation};
 
@@ -140,6 +140,11 @@ impl ReputationContract {
         let key = DataKey::Rep(member.clone());
         env.storage().persistent().set(&key, rep);
         extend_persistent_long(env, &key);
+    }
+
+    /// Returns the CARGO_PKG_VERSION of this build as a string.
+    pub fn version(env: Env) -> String {
+        String::from_str(&env, env!("CARGO_PKG_VERSION"))
     }
 }
 

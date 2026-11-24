@@ -22,6 +22,7 @@ Topic namespace: `circle`.
 | `init` | `(admin: Address, reputation: Address)` | The contract is initialized |
 | `create` | `(id: u32, creator: Address)` | A circle is created |
 | `join` | `(id: u32, member: Address)` | A member joins |
+| `remove` | `(id: u32, member: Address)` | The creator removes a member from an open circle |
 | `start` | `id: u32` | The circle activates (fills to `size`) |
 | `contrib` | `(id: u32, member: Address, cycle: u32)` | A member contributes |
 | `slash` | `(id: u32, member: Address, amount: i128)` | A deposit is slashed to cover a miss |

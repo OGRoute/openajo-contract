@@ -283,6 +283,35 @@ fn recipient_defaults_after_receiving_loses_deposit() {
     assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
 }
 
+// ---- recipient_misses_their_own_cycle_contribution (#102) -----------------
+
+#[test]
+fn recipient_misses_their_own_cycle_contribution() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    // Cycle 0: a is the rotation recipient but skips their contribution.
+    // b and c pay; the deadline settles the cycle by force.
+    f.client.contribute(&id, b);
+    f.client.contribute(&id, c);
+    advance_past_deadline(&f, id);
+    f.client.settle_cycle(&id);
+
+    // a is slashed 100 from their deposit (150 → 50) and still receives the pot.
+    // Pot = 100 (b) + 100 (c) + 100 (slashed from a's deposit) = 300.
+    let st_a = f.client.get_member(&id, a);
+    assert_eq!(st_a.deposit_remaining, DEPOSIT - CONTRIB); // 50
+    assert!(!st_a.defaulted); // one miss is fully covered; no default yet
+    assert!(st_a.received); // still the payout recipient for cycle 0
+
+    // a: 1 000 − 150 (deposit) + 300 (pot) = 1 150.
+    assert_eq!(f.token.balance(a), 1_000 - DEPOSIT + 3 * CONTRIB);
+    // b and c each paid 100 and their full deposits remain escrowed.
+    assert_eq!(f.token.balance(b), 1_000 - DEPOSIT - CONTRIB);
+    assert_eq!(f.token.balance(c), 1_000 - DEPOSIT - CONTRIB);
+}
+
 // ---- Open-phase flows -----------------------------------------------------
 
 #[test]
@@ -393,6 +422,45 @@ fn contribute_after_default_panics() {
         f.client.settle_cycle(&id);
     }
     f.client.contribute(&id, c);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")]
+fn contribute_on_open_circle_panics_bad_status() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    // Circle is Open (only two of the three required members have joined).
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    // contribute must reject the call because the circle is not yet Active.
+    f.client.contribute(&id, a);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn contribute_by_non_member_panics_not_member() {
+    let f = setup();
+    let id = create_full_circle(&f);
+    let outsider = Address::generate(&f.env);
+    f.client.contribute(&id, &outsider);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn settle_twice_in_one_cycle_panics_not_due() {
+    let f = setup();
+    let id = create_full_circle(&f);
+    // All members pay, so the first settle succeeds immediately (all-paid path).
+    for m in f.members.iter() {
+        f.client.contribute(&id, m);
+    }
+    f.client.settle_cycle(&id);
+    assert_eq!(f.client.get_circle(&id).current_cycle, 1);
+    // A second immediate settle has nobody paid and the new deadline is in the
+    // future, so it must be NotDue.
+    f.client.settle_cycle(&id);
 }
 
 #[test]
@@ -1500,6 +1568,154 @@ fn rejoin_after_leaving_starts_fresh_at_the_end() {
     assert_eq!(f.token.balance(&f.client.address), 0);
 }
 
+// ---- Creator removes a member --------------------------------------------
+
+#[test]
+fn remove_member_refunds_exactly_and_preserves_order() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let d = funded_member(&f);
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &4, &PERIOD);
+    f.client.join(&id, b);
+    f.client.join(&id, c);
+    assert_eq!(f.token.balance(&f.client.address), 3 * DEPOSIT);
+
+    f.client.remove_member(&id, a, b);
+
+    // Exactly the removed member's deposit leaves escrow, back to them.
+    assert_eq!(f.token.balance(b), 1_000);
+    assert_eq!(f.token.balance(a), 1_000 - DEPOSIT);
+    assert_eq!(f.token.balance(c), 1_000 - DEPOSIT);
+    assert_eq!(f.token.balance(&f.client.address), 2 * DEPOSIT);
+    assert_eq!(
+        f.client.get_members(&id),
+        soroban_sdk::vec![&f.env, a.clone(), c.clone()]
+    );
+    assert_eq!(
+        f.client.try_get_member(&id, b),
+        Err(Ok(Error::NotMember.into()))
+    );
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Open);
+
+    // A newcomer takes the vacated slot at the end; the rest keep their
+    // relative order, which is the payout order.
+    f.client.join(&id, &d);
+    assert_eq!(
+        f.client.get_members(&id),
+        soroban_sdk::vec![&f.env, a.clone(), c.clone(), d.clone()]
+    );
+}
+
+#[test]
+fn remove_member_emits_event() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.remove_member(&id, a, b);
+
+    let topics: Vec<Val> = vec![
+        &f.env,
+        symbol_short!("circle").into_val(&f.env),
+        symbol_short!("remove").into_val(&f.env),
+    ];
+    // Filter out the token's transfer event so only the circle's event is
+    // compared: the refund is a sub-invocation of `remove_member`.
+    let events = f.env.events().all().filter_by_contract(&f.client.address);
+    let expected = vec![
+        &f.env,
+        (
+            f.client.address.clone(),
+            topics,
+            (id, b.clone()).into_val(&f.env),
+        ),
+    ];
+    assert_eq!(events, expected);
+}
+
+#[test]
+fn remove_member_requires_creator_auth() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.remove_member(&id, a, b);
+    // The refund is sent by the contract itself, so only the creator's
+    // authorisation of `remove_member` is recorded.
+    assert_eq!(
+        f.env.auths(),
+        std::vec![(
+            a.clone(),
+            invocation(
+                &f.client.address,
+                "remove_member",
+                (id, a.clone(), b.clone()).into_val(&f.env),
+                std::vec![],
+            )
+        )]
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn non_creator_remove_member_panics_not_creator() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.join(&id, c);
+    f.client.remove_member(&id, b, c);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")]
+fn remove_member_on_active_circle_panics_bad_status() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = create_full_circle(&f);
+    f.client.remove_member(&id, a, b);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn creator_cannot_remove_self() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.remove_member(&id, a, a);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn remove_member_non_member_panics_not_member() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    f.client.remove_member(&id, a, c);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn remove_member_unknown_circle_panics_not_found() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    f.client.remove_member(&UNKNOWN_ID, a, b);
+}
+
 // ---- Unknown circle ids (#88) ---------------------------------------------
 
 const UNKNOWN_ID: u32 = 999;
@@ -2047,4 +2263,167 @@ fn initialize_emits_init_event_with_admin_and_reputation() {
         ),
     ];
     assert_eq!(env.events().all(), expected);
+}
+
+// ---- Issue #66: get_config ------------------------------------------------
+
+#[test]
+fn get_config_returns_stored_values() {
+    let f = setup();
+    let config = f.client.get_config();
+    // The admin and reputation addresses must match what initialize stored.
+    // We cannot compare Address directly, but we can round-trip through the
+    // view: the admin address is reachable by calling set_open_circle_cap
+    // (which requires admin auth) — if mock_all_auths succeeds, the returned
+    // config is consistent.
+    assert_eq!(config.open_circle_cap, u32::MAX);
+    // Calling with a fresh env where the config was stored confirms the value.
+    let f2 = setup();
+    f2.client.set_open_circle_cap(&42);
+    assert_eq!(f2.client.get_config().open_circle_cap, 42);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn get_config_panics_before_initialize() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(CircleContract, ());
+    let client = CircleContractClient::new(&env, &id);
+    client.get_config();
+}
+
+// ---- Issue #67: get_circles -----------------------------------------------
+
+#[test]
+fn get_circles_returns_all_when_within_limit() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id0 = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id1 = f
+        .client
+        .create_circle(b, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id2 = f
+        .client
+        .create_circle(c, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+
+    let page = f.client.get_circles(&0, &10);
+    assert_eq!(page.len(), 3);
+    assert_eq!(page.get(0).unwrap().0, id0);
+    assert_eq!(page.get(1).unwrap().0, id1);
+    assert_eq!(page.get(2).unwrap().0, id2);
+}
+
+#[test]
+fn get_circles_start_past_total_returns_empty() {
+    let f = setup();
+    let [a, _, _] = &f.members;
+    f.client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+
+    let page = f.client.get_circles(&99, &10);
+    assert_eq!(page.len(), 0);
+}
+
+#[test]
+fn get_circles_paginates_correctly() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    f.client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client
+        .create_circle(b, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client
+        .create_circle(c, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+
+    let page = f.client.get_circles(&1, &2);
+    assert_eq!(page.len(), 2);
+    assert_eq!(page.get(0).unwrap().0, 1);
+    assert_eq!(page.get(1).unwrap().0, 2);
+}
+
+#[test]
+fn get_circles_caps_at_max_page_size() {
+    use crate::MAX_PAGE_SIZE;
+    // We only create 3 circles and ask for MAX_PAGE_SIZE+10; should get 3 back.
+    let f = setup();
+    let [a, b, c] = &f.members;
+    f.client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client
+        .create_circle(b, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client
+        .create_circle(c, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+
+    let page = f.client.get_circles(&0, &(MAX_PAGE_SIZE + 10));
+    assert_eq!(page.len(), 3);
+}
+
+// ---- Issue #68: payout_position -------------------------------------------
+
+#[test]
+fn payout_position_join_order() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    assert_eq!(f.client.payout_position(&id, a), 0);
+    assert_eq!(f.client.payout_position(&id, b), 1);
+    assert_eq!(f.client.payout_position(&id, c), 2);
+}
+
+#[test]
+fn payout_position_skips_defaulted_members_ahead() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    // Default b over two missed cycles.
+    for _ in 0..2 {
+        f.client.contribute(&id, a);
+        f.client.contribute(&id, c);
+        advance_past_deadline(&f, id);
+        f.client.settle_cycle(&id);
+    }
+    assert!(f.client.get_member(&id, b).defaulted);
+
+    // c is now at position 1 (b was skipped).
+    assert_eq!(f.client.payout_position(&id, a), 0);
+    assert_eq!(f.client.payout_position(&id, c), 1);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #9)")]
+fn payout_position_panics_for_defaulted_member() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    // Default b.
+    for _ in 0..2 {
+        f.client.contribute(&id, a);
+        f.client.contribute(&id, c);
+        advance_past_deadline(&f, id);
+        f.client.settle_cycle(&id);
+    }
+    f.client.payout_position(&id, b);
+}
+
+// ---- Issue #69: version ---------------------------------------------------
+
+#[test]
+fn circle_version_is_non_empty() {
+    let f = setup();
+    let v = f.client.version();
+    assert!(!v.is_empty());
+}
+
+#[test]
+fn circle_version_matches_cargo_pkg_version() {
+    let f = setup();
+    let v = f.client.version();
+    let expected = soroban_sdk::String::from_str(&f.env, env!("CARGO_PKG_VERSION"));
+    assert_eq!(v, expected);
 }

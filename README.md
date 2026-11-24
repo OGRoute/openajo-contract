@@ -83,9 +83,9 @@ contracts through the CLI rather than plain `cargo build`.
 ## Application layer
 
 The SDK, indexer/API and web app live in the companion repo **openajo-app**.
-Contract events (`circle`/`create`, `join`, `start`, `contrib`, `slash`,
-`default`, `payout`, `complete`, `cancel`) are the integration surface — the
-indexer is built by folding them.
+Contract events (`circle`/`create`, `join`, `remove`, `start`, `contrib`,
+`slash`, `default`, `payout`, `complete`, `cancel`) are the integration
+surface — the indexer is built by folding them.
 
 ## Contributing
 
