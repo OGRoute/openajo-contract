@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
 //! OpenAjo `circle` — the full ROSCA (ajo/esusu/adashe) lifecycle.
 //!
 //! One instance manages many circles. A circle escrows a flat deposit from
@@ -47,6 +48,7 @@ pub trait ReputationIface {
 pub struct CircleContract;
 
 #[contractimpl]
+#[allow(clippy::too_many_arguments)]
 impl CircleContract {
     /// Callable once by anyone; stores admin and the reputation contract.
     pub fn initialize(env: Env, admin: Address, reputation: Address) {
@@ -86,6 +88,9 @@ impl CircleContract {
         deposit: i128,
         size: u32,
         period_secs: u64,
+        auto_settle: bool,
+        randomize_order: bool,
+        keeper_reward_bps: u32,
     ) -> u32 {
         creator.require_auth();
         validation::validate_create_params(contribution, deposit, size, period_secs, &env);
@@ -119,6 +124,9 @@ impl CircleContract {
             current_cycle: 0,
             slashed_total: 0,
             ended_at: 0,
+            auto_settle,
+            randomize_order,
+            keeper_reward_bps,
         };
         storage::write_circle(&env, id, &circle);
         storage::write_members(&env, id, &vec![&env, creator.clone()]);
@@ -174,6 +182,20 @@ impl CircleContract {
         if members.len() == circle.size {
             circle.status = CircleStatus::Active;
             circle.started_at = env.ledger().timestamp();
+            // Randomise payout order at activation if requested.
+            if circle.randomize_order {
+                let n = members.len();
+                let mut i = n;
+                while i > 1 {
+                    i -= 1;
+                    let j = env.prng().gen_range::<u64>(0..=i as u64) as u32;
+                    let a = members.get_unchecked(i);
+                    let b = members.get_unchecked(j);
+                    members.set(i, b);
+                    members.set(j, a);
+                }
+                storage::write_members(&env, circle_id, &members);
+            }
             events::start(&env, circle_id);
             // Circle activated: decrement creator's open circle count.
             let open_key = DataKey::OpenCircles(circle.creator.clone());
@@ -294,13 +316,66 @@ impl CircleContract {
         );
         env.storage().temporary().set(&key, &true);
         events::contrib(&env, circle_id, &member, circle.current_cycle);
+
+        // Auto-settle: if the circle requested it, check whether every active
+        // member has now paid and trigger settlement inline if so.
+        if circle.auto_settle {
+            let members = storage::read_members(&env, circle_id);
+            let mut all_active_paid = true;
+            for m in members.iter() {
+                let st = storage::read_member(&env, circle_id, &m);
+                if st.defaulted {
+                    continue;
+                }
+                if !storage::is_paid(&env, circle_id, circle.current_cycle, &m) {
+                    all_active_paid = false;
+                    break;
+                }
+            }
+            if all_active_paid {
+                settlement::settle_cycle(env, circle_id, member);
+            }
+        }
     }
 
-    /// Permissionless crank: anyone may settle a due cycle. Funds only move
-    /// according to protocol rules, so no auth is required — this is what lets
-    /// the indexer (or any member) advance a circle whose deadline passed.
-    pub fn settle_cycle(env: Env, circle_id: u32) {
-        settlement::settle_cycle(env, circle_id);
+    /// Permissionless crank: anyone may settle a due cycle. `keeper` is the
+    /// address that will receive a keeper reward from any slashes this cycle,
+    /// proportional to the circle's `keeper_reward_bps`. No auth is required.
+    pub fn settle_cycle(env: Env, circle_id: u32, keeper: Address) {
+        settlement::settle_cycle(env, circle_id, keeper);
+    }
+
+    /// Creator only, before the first cycle settles: store a custom payout
+    /// order that overrides the default join order. Requires auth from every
+    /// non-defaulted member so no single party can re-route payouts.
+    pub fn set_payout_order(env: Env, circle_id: u32, creator: Address, order: Vec<Address>) {
+        creator.require_auth();
+        let circle = storage::read_circle(&env, circle_id);
+        validation::validate_is_creator(&circle, &creator, &env);
+        validation::validate_circle_active(&circle, &env);
+        if circle.current_cycle != 0 {
+            panic_with_error!(&env, Error::BadStatus);
+        }
+        let members = storage::read_members(&env, circle_id);
+        // Require every non-defaulted member to co-sign.
+        for m in members.iter() {
+            let st = storage::read_member(&env, circle_id, &m);
+            if !st.defaulted {
+                m.require_auth();
+            }
+        }
+        // Validate that order is a permutation of the member list.
+        if order.len() != members.len() {
+            panic_with_error!(&env, Error::BadOrder);
+        }
+        for m in members.iter() {
+            if !order.contains(&m) {
+                panic_with_error!(&env, Error::BadOrder);
+            }
+        }
+        storage::write_payout_order(&env, circle_id, &order);
+        extend_instance(&env);
+        events::order_set(&env, circle_id);
     }
 
     // ---- Views ------------------------------------------------------------
