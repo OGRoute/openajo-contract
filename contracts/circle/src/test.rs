@@ -283,6 +283,35 @@ fn recipient_defaults_after_receiving_loses_deposit() {
     assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
 }
 
+// ---- recipient_misses_their_own_cycle_contribution (#102) -----------------
+
+#[test]
+fn recipient_misses_their_own_cycle_contribution() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let id = create_full_circle(&f);
+
+    // Cycle 0: a is the rotation recipient but skips their contribution.
+    // b and c pay; the deadline settles the cycle by force.
+    f.client.contribute(&id, b);
+    f.client.contribute(&id, c);
+    advance_past_deadline(&f, id);
+    f.client.settle_cycle(&id);
+
+    // a is slashed 100 from their deposit (150 → 50) and still receives the pot.
+    // Pot = 100 (b) + 100 (c) + 100 (slashed from a's deposit) = 300.
+    let st_a = f.client.get_member(&id, a);
+    assert_eq!(st_a.deposit_remaining, DEPOSIT - CONTRIB); // 50
+    assert!(!st_a.defaulted); // one miss is fully covered; no default yet
+    assert!(st_a.received); // still the payout recipient for cycle 0
+
+    // a: 1 000 − 150 (deposit) + 300 (pot) = 1 150.
+    assert_eq!(f.token.balance(a), 1_000 - DEPOSIT + 3 * CONTRIB);
+    // b and c each paid 100 and their full deposits remain escrowed.
+    assert_eq!(f.token.balance(b), 1_000 - DEPOSIT - CONTRIB);
+    assert_eq!(f.token.balance(c), 1_000 - DEPOSIT - CONTRIB);
+}
+
 // ---- Open-phase flows -----------------------------------------------------
 
 #[test]
@@ -393,6 +422,45 @@ fn contribute_after_default_panics() {
         f.client.settle_cycle(&id);
     }
     f.client.contribute(&id, c);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")]
+fn contribute_on_open_circle_panics_bad_status() {
+    let f = setup();
+    let [a, b, _] = &f.members;
+    // Circle is Open (only two of the three required members have joined).
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.join(&id, b);
+    // contribute must reject the call because the circle is not yet Active.
+    f.client.contribute(&id, a);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn contribute_by_non_member_panics_not_member() {
+    let f = setup();
+    let id = create_full_circle(&f);
+    let outsider = Address::generate(&f.env);
+    f.client.contribute(&id, &outsider);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn settle_twice_in_one_cycle_panics_not_due() {
+    let f = setup();
+    let id = create_full_circle(&f);
+    // All members pay, so the first settle succeeds immediately (all-paid path).
+    for m in f.members.iter() {
+        f.client.contribute(&id, m);
+    }
+    f.client.settle_cycle(&id);
+    assert_eq!(f.client.get_circle(&id).current_cycle, 1);
+    // A second immediate settle has nobody paid and the new deadline is in the
+    // future, so it must be NotDue.
+    f.client.settle_cycle(&id);
 }
 
 #[test]
