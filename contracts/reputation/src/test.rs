@@ -495,6 +495,136 @@ fn reading_a_record_refreshes_its_long_ttl() {
     );
 }
 
+// ---- get_reputations batch view (#70) ------------------------------------
+
+#[test]
+fn get_reputations_preserves_order_and_fills_unknowns_with_zero() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+    let c = Address::generate(&env);
+    client.set_reporter(&admin, &reporter, &true);
+
+    client.report_completion(&reporter, &a, &CTX);
+    client.report_completion(&reporter, &a, &CTX);
+    client.report_default(&reporter, &b, &CTX);
+
+    // c is unknown — must come back as zeroes
+    let members = vec![&env, a.clone(), b.clone(), c.clone()];
+    let result = client.get_reputations(&members);
+
+    assert_eq!(result.get(0).unwrap(), Reputation { completed: 2, defaulted: 0 });
+    assert_eq!(result.get(1).unwrap(), Reputation { completed: 0, defaulted: 1 });
+    assert_eq!(result.get(2).unwrap(), Reputation { completed: 0, defaulted: 0 });
+}
+
+#[test]
+fn get_reputations_empty_vec_returns_empty() {
+    let (env, client, _) = setup();
+    let members: Vec<Address> = Vec::new(&env);
+    assert_eq!(client.get_reputations(&members).len(), 0);
+}
+
+#[test]
+fn get_reputations_over_cap_returns_batch_too_large() {
+    let (env, client, _) = setup();
+    let mut members: Vec<Address> = vec![&env];
+    for _ in 0..51 {
+        members.push_back(Address::generate(&env));
+    }
+    assert_eq!(
+        client.try_get_reputations(&members),
+        Err(Ok(Error::BatchTooLarge.into()))
+    );
+}
+
+// ---- is_reporter view (#71) -----------------------------------------------
+
+#[test]
+fn is_reporter_true_after_allow_false_after_revoke() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+
+    // Not yet set — defaults to false
+    assert!(!client.is_reporter(&reporter));
+
+    client.set_reporter(&admin, &reporter, &true);
+    assert!(client.is_reporter(&reporter));
+
+    client.set_reporter(&admin, &reporter, &false);
+    assert!(!client.is_reporter(&reporter));
+}
+
+// ---- get_admin view (#72) -------------------------------------------------
+
+#[test]
+fn get_admin_returns_the_admin_address() {
+    let (_, client, admin) = setup();
+    assert_eq!(client.get_admin(), admin);
+}
+
+#[test]
+fn get_admin_panics_before_initialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(ReputationContract, ());
+    let client = ReputationContractClient::new(&env, &id);
+    assert!(client.try_get_admin().is_err());
+}
+
+// ---- set_reporter emits event (#73) ---------------------------------------
+
+#[test]
+fn set_reporter_emits_reporter_event() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+
+    // Each client call is a separate simulated transaction; events().all()
+    // returns only the events from the most-recent call.
+    client.set_reporter(&admin, &reporter, &true);
+
+    let topics: Vec<Val> = vec![
+        &env,
+        symbol_short!("rep").into_val(&env),
+        symbol_short!("reporter").into_val(&env),
+    ];
+    let expected = vec![
+        &env,
+        (
+            client.address.clone(),
+            topics,
+            (reporter.clone(), true).into_val(&env),
+        ),
+    ];
+    assert_eq!(env.events().all(), expected);
+}
+
+#[test]
+fn set_reporter_revoke_emits_false_event() {
+    let (env, client, admin) = setup();
+    let reporter = Address::generate(&env);
+
+    client.set_reporter(&admin, &reporter, &true);
+    // The second call is a fresh transaction; events() shows only its event.
+    client.set_reporter(&admin, &reporter, &false);
+
+    let topics: Vec<Val> = vec![
+        &env,
+        symbol_short!("rep").into_val(&env),
+        symbol_short!("reporter").into_val(&env),
+    ];
+    let expected = vec![
+        &env,
+        (
+            client.address.clone(),
+            topics,
+            (reporter.clone(), false).into_val(&env),
+        ),
+    ];
+    assert_eq!(env.events().all(), expected);
+}
+
 // ---- Reporter allow-list storage (#75) ------------------------------------
 
 #[test]

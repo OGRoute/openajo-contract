@@ -13,6 +13,20 @@ here without a version bump.
 
 ## [Unreleased]
 
+### Added
+
+- `reputation`: `get_reputations(members: Vec<Address>) -> Vec<Reputation>` — batch
+  view that returns reputations in the same order as the input, filling unknown
+  addresses with zeroes. Capped at 50 members; exceeding the cap returns `Error::BatchTooLarge`.
+- `reputation`: `is_reporter(address: Address) -> bool` — view that returns `true`
+  if the address is currently an authorised reporter, `false` otherwise.
+- `reputation`: `get_admin() -> Address` — view that exposes the current admin
+  address. Panics `NotInitialized` before `initialize` is called.
+- `reputation`: `set_reporter` now emits a `(rep, reporter)` event with data
+  `(reporter, allowed)` on every allow or revoke, so security-critical reporter
+  changes are observable without polling storage.
+- `reputation`: new error code `Error::BatchTooLarge (5)` for oversized batches.
+
 ### Changed
 
 - `circle`: the one-hour minimum cycle length is the public constant

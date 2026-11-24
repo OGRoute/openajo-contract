@@ -16,9 +16,12 @@ mod events;
 mod types;
 
 use errors::Error;
-use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env};
+use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env, Vec};
 use ttl_helpers::{extend_instance, extend_persistent, extend_persistent_long};
 use types::{DataKey, Reputation};
+
+/// Maximum number of members accepted by `get_reputations`.
+const MAX_BATCH: u32 = 50;
 
 #[contract]
 pub struct ReputationContract;
@@ -46,9 +49,10 @@ impl ReputationContract {
         if stored != admin {
             panic_with_error!(&env, Error::NotAdmin);
         }
-        let key = DataKey::Reporter(reporter);
+        let key = DataKey::Reporter(reporter.clone());
         env.storage().persistent().set(&key, &allowed);
         extend_persistent(&env, &key);
+        events::reporter_set(&env, &reporter, allowed);
     }
 
     /// Authorized reporters only: record a cleanly completed circle.
@@ -89,6 +93,33 @@ impl ReputationContract {
                 defaulted: 0,
             },
         }
+    }
+
+    /// Anyone: batch reputation lookup; order is preserved and unknown members
+    /// read as zeroes. Panics `BatchTooLarge` if `members` exceeds `MAX_BATCH`.
+    pub fn get_reputations(env: Env, members: Vec<Address>) -> Vec<Reputation> {
+        if members.len() > MAX_BATCH {
+            panic_with_error!(&env, Error::BatchTooLarge);
+        }
+        let mut out = Vec::new(&env);
+        for member in members.iter() {
+            out.push_back(Self::get_reputation(env.clone(), member));
+        }
+        out
+    }
+
+    /// Anyone: returns `true` if `address` is currently an authorized reporter.
+    pub fn is_reporter(env: Env, address: Address) -> bool {
+        let key = DataKey::Reporter(address);
+        env.storage().persistent().get(&key).unwrap_or(false)
+    }
+
+    /// Anyone: returns the admin address. Panics `NotInitialized` before setup.
+    pub fn get_admin(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized))
     }
 
     /// Invoker auth (the reporter contract authorizes its own call) plus the
