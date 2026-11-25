@@ -71,11 +71,12 @@ inv() { # source id fn args...
 }
 
 CID=$(inv "$ADMIN_ID" "$CIRCLE" create_circle --creator "$A" --token "$TOKEN" \
-  --contribution 100 --deposit 0 --size 2 --period_secs 3600 | tr -d "\"")
+  --contribution 100 --deposit 0 --size 2 --period_secs 3600 \
+  --auto_settle false --randomize_order false --keeper_reward_bps 0 | tr -d "\"")
 inv "$B_ID" "$CIRCLE" join --circle_id "$CID" --member "$B"
 inv "$ADMIN_ID" "$CIRCLE" contribute --circle_id "$CID" --member "$A"
 inv "$B_ID" "$CIRCLE" contribute --circle_id "$CID" --member "$B"
-inv "$ADMIN_ID" "$CIRCLE" settle_cycle --circle_id "$CID"
+inv "$ADMIN_ID" "$CIRCLE" settle_cycle --circle_id "$CID" --keeper "$A"
 
 MEMBER=$(stellar contract invoke --id "$CIRCLE" --source "$ADMIN_ID" --network "$NET" \
   -- get_member --circle_id "$CID" --member "$A")
