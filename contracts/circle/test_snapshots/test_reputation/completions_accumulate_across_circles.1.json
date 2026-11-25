@@ -1579,6 +1579,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "grace_secs"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "period_secs"
                     },
                     "val": {
@@ -1692,6 +1700,14 @@
                   {
                     "key": {
                       "symbol": "ended_at"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "grace_secs"
                     },
                     "val": {
                       "u64": "0"

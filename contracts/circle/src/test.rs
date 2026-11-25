@@ -581,6 +581,7 @@ fn create_zero_deposit_accepted() {
         .client
         .create_circle(a, &f.token.address, &CONTRIB, &0, &3, &PERIOD);
     assert_eq!(f.client.get_circle(&id).deposit, 0);
+    assert_eq!(f.client.get_circle(&id).grace_secs, 0);
     assert_eq!(f.token.balance(a), 1_000);
 }
 
@@ -950,6 +951,81 @@ fn settlement_at_exact_deadline_is_not_due() {
         DEPOSIT - CONTRIB
     );
     assert!(f.client.get_member(&id, a).received);
+}
+
+#[test]
+fn grace_period_delays_slashing_through_its_boundary() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let grace_secs = 30;
+    let id = f.client.create_circle_with_grace(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &grace_secs,
+    );
+    f.client.join(&id, b);
+    f.client.join(&id, c);
+    assert_eq!(f.client.get_circle(&id).grace_secs, grace_secs);
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    let deadline = f.client.cycle_deadline(&id);
+
+    f.env.ledger().with_mut(|l| l.timestamp = deadline);
+    assert_eq!(
+        f.client.try_settle_cycle(&id),
+        Err(Ok(Error::NotDue.into()))
+    );
+    f.env
+        .ledger()
+        .with_mut(|l| l.timestamp = deadline + grace_secs);
+    assert_eq!(
+        f.client.try_settle_cycle(&id),
+        Err(Ok(Error::NotDue.into()))
+    );
+    assert_eq!(f.client.get_member(&id, c).deposit_remaining, DEPOSIT);
+
+    f.env
+        .ledger()
+        .with_mut(|l| l.timestamp = deadline + grace_secs + 1);
+    assert_eq!(f.client.try_settle_cycle(&id), Ok(Ok(())));
+    assert_eq!(
+        f.client.get_member(&id, c).deposit_remaining,
+        DEPOSIT - CONTRIB
+    );
+}
+
+#[test]
+fn member_can_contribute_during_grace_without_being_slashed() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let grace_secs = 30;
+    let id = f.client.create_circle_with_grace(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &grace_secs,
+    );
+    f.client.join(&id, b);
+    f.client.join(&id, c);
+    f.client.contribute(&id, a);
+    f.client.contribute(&id, b);
+    let deadline = f.client.cycle_deadline(&id);
+
+    f.env
+        .ledger()
+        .with_mut(|l| l.timestamp = deadline + grace_secs);
+    f.client.contribute(&id, c);
+    f.client.settle_cycle(&id);
+
+    assert_eq!(f.client.get_circle(&id).slashed_total, 0);
+    assert_eq!(f.client.get_member(&id, c).deposit_remaining, DEPOSIT);
 }
 
 // ---- Minimum-size circle --------------------------------------------------

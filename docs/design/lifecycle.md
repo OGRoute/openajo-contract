@@ -99,7 +99,7 @@ sequenceDiagram
     participant Reputation as Reputation Contract
     participant Crank as Anyone (crank)
 
-    Creator->>Circle: create_circle(creator, token, contribution, deposit, size=2, period_secs)
+    Creator->>Circle: create_circle_with_grace(creator, token, contribution, deposit, size=2, period_secs, grace_secs)
     Circle->>Token: transfer(creator, Circle, deposit)
     Token-->>Circle: ok
     Circle-->>Creator: circle_id
@@ -157,7 +157,7 @@ sequenceDiagram
     participant Circle as Circle Contract
     participant Token as Token (SAC)
 
-    Creator->>Circle: create_circle(creator, token, contribution, deposit, size=2, period_secs)
+    Creator->>Circle: create_circle_with_grace(creator, token, contribution, deposit, size=2, period_secs, grace_secs)
     Circle->>Token: transfer(creator, Circle, deposit)
     Token-->>Circle: ok
     Circle-->>Creator: circle_id

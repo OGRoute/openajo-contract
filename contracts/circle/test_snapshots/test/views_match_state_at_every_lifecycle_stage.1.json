@@ -1035,6 +1035,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "grace_secs"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "period_secs"
                     },
                     "val": {

@@ -20,7 +20,8 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
     let now = env.ledger().timestamp();
     let deadline = circle.started_at + (cycle as u64 + 1) * circle.period_secs;
 
-    // Due when every active member has paid, or the deadline has passed.
+    // Fully paid cycles settle immediately; missed contributions get the
+    // configured grace period before they can be slashed.
     let mut all_paid = true;
     for m in members.iter() {
         let st = crate::storage::read_member(&env, circle_id, &m);
@@ -32,7 +33,12 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
             break;
         }
     }
-    crate::validation::validate_cycle_due(all_paid, now, deadline, &env);
+    crate::validation::validate_cycle_due(
+        all_paid,
+        now,
+        deadline.saturating_add(circle.grace_secs),
+        &env,
+    );
 
     let config: GlobalConfig = crate::storage::read_config(&env);
     let tok = token::Client::new(&env, &circle.token);
