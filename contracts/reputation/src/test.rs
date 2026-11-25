@@ -509,3 +509,13 @@ fn reporter_flags_live_in_persistent_storage() {
     assert!(persistent, "reporter flag must be persistent");
     assert!(!instance, "reporter flag must not stay in instance storage");
 }
+
+// ---- Issue #69: version ---------------------------------------------------
+
+#[test]
+fn reputation_version_matches_cargo_pkg_version() {
+    let (env, client, _) = setup();
+    let v = client.version();
+    let expected = soroban_sdk::String::from_str(&env, env!("CARGO_PKG_VERSION"));
+    assert_eq!(v, expected);
+}

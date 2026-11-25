@@ -18,14 +18,16 @@ A circle is `Active` from the moment its last member joins. From then on,
 settlement is allowed once **either** condition holds:
 
 1. **Every active (non-defaulted) member has paid** this cycle's contribution, or
-2. The **deadline has passed**:
+2. The **deadline and grace period have passed**:
    ```
    deadline = started_at + (current_cycle + 1) * period_secs
+   settle after deadline + get_circle(id).grace_secs
    ```
 
 If neither is true, `settle_cycle` reverts with `NotDue` (`#10`). This lets an
 honest circle settle the instant everyone has contributed, while guaranteeing a
-stalling member cannot hold the circle hostage past the deadline.
+stalling member cannot hold the circle hostage past the deadline and grace
+period. Unpaid members may still contribute until settlement occurs.
 
 Notes that matter for a keeper:
 
@@ -35,8 +37,9 @@ Notes that matter for a keeper:
   recomputing it.
 * "Active member" excludes anyone already defaulted. A defaulted member neither
   has to pay nor counts toward "everyone paid".
-* A cycle can become due *early* only through contributions. The deadline is the
-  only time-based trigger; there is no other clock.
+* A cycle can become due *early* only through contributions. The deadline plus
+  the circle's grace period is the only time-based trigger; there is no other
+  clock.
 
 ## How to detect a due cycle
 
@@ -50,7 +53,8 @@ loop looks like this:
    `Open`, `Completed` and `Cancelled` circles — settling them reverts with
    `BadStatus` (`#4`).
 3. **Check the deadline.** Compare the current ledger time to
-   `cycle_deadline(id)`. If `now >= deadline`, the cycle is due.
+   `cycle_deadline(id) + get_circle(id).grace_secs`. If `now` is strictly
+   greater, the cycle is due.
 4. **Detect early due (optional).** There is no on-chain "paid count" view: paid
    state is temporary storage keyed by `(circle_id, cycle, member)` and is not
    exposed. Two workable approaches:

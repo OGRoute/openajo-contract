@@ -21,7 +21,15 @@ Deploy wiring calls this immediately after deployment — see
 ### `create_circle(creator, params: CircleParams) -> u32`
 
 Creates an `Open` circle, adds the creator as member 0, and escrows the creator's
-deposit in the same transaction. Returns the new circle id.
+deposit in the same transaction. Uses a zero-second grace period and returns the
+new circle id.
+
+### `create_circle_with_grace(creator, token, contribution, deposit, size, period_secs, grace_secs) -> u32`
+
+Creates a circle as above, with a per-circle grace period in seconds. Unpaid
+members cannot be slashed until the ledger timestamp is strictly later than
+`cycle_deadline + grace_secs`. Fully paid cycles may still settle immediately.
+Members may contribute during the grace period until settlement occurs.
 
 `CircleParams` is a struct of `token`, `contribution`, `deposit`, `size` and
 `period_secs`, so new circle settings can be added without growing the argument
@@ -33,6 +41,7 @@ list. Requires `creator` auth. Reverts `BadParams` unless:
 | `deposit` | `>= 0` (may be `0`; see [deposits](../design/deposits-and-default.md)) |
 | `size` | `>= 2` |
 | `period_secs` | `>= MIN_PERIOD_SECS` (`3600`, one hour) |
+| `grace_secs` | Any `u64` value for `create_circle_with_grace`; `0` for `create_circle` |
 
 `token` is the SAC address of the asset the circle runs in.
 
@@ -57,6 +66,19 @@ A non-creator member leaves an `Open` circle and is refunded in full. Requires
 `member` auth.
 
 Reverts: `NotMember`, `IsCreator` (the creator cancels instead), `BadStatus`.
+
+### `remove_member(circle_id, creator, member)`
+
+The creator removes a member from an `Open` circle. The member's remaining
+deposit is refunded in full and their record is deleted (like `leave`), so they
+may join again later as a new member at the end of the join order. The remaining
+members keep their relative order, so payout order is unchanged. Requires
+`creator` auth.
+
+The creator cannot remove themselves — that would orphan the circle, so they must
+`cancel` instead.
+
+Reverts: `NotCreator`, `BadStatus` (not `Open`), `IsCreator`, `NotMember`.
 
 ### `cancel(circle_id, creator)`
 
@@ -106,8 +128,10 @@ sub-invocations under the signer's entry.
 | --- | --- | --- |
 | `initialize(admin, reputation)` | nobody — open to anyone | none |
 | `create_circle(creator, …)` | `creator` | `[creator, { contract_fn { this, `create_circle`, [...] } }]`; plus a token `transfer` sub-invocation under `creator` when `deposit > 0` |
+| `create_circle_with_grace(creator, …)` | `creator` | Same as `create_circle`, with `grace_secs` included in the function arguments |
 | `join(circle_id, member)` | `member` | `[member, { contract_fn { this, `join`, [...] } }]`; plus a token `transfer` sub-invocation under `member` when `deposit > 0` |
 | `leave(circle_id, member)` | `member` (not the creator) | `[member, { contract_fn { this, `leave`, [...] } }]`; plus a refund transfer sub-invocation |
+| `remove_member(circle_id, creator, member)` | `creator` | `[creator, { contract_fn { this, `remove_member`, [...] } }]`; plus a refund transfer sub-invocation |
 | `cancel(circle_id, creator)` | `creator` | `[creator, { contract_fn { this, `cancel`, [...] } }]`; plus one refund transfer sub-invocation per member |
 | `contribute(circle_id, member)` | `member` | `[member, { contract_fn { this, `contribute`, [...] } }]`; plus a token `transfer` sub-invocation |
 | `settle_cycle(circle_id)` | nobody — permissionless | none; the invoker only pays the fee |

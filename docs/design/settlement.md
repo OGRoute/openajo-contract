@@ -10,12 +10,13 @@ operator from the protocol.
 Settlement is allowed once either condition holds:
 
 * **Every active member has paid** this cycle, or
-* the **deadline has passed**: `started_at + (cycle + 1) × period_secs`.
+* the **deadline and grace period have passed**:
+  `now > started_at + (cycle + 1) × period_secs + grace_secs`.
 
 If neither is true, the call reverts with `NotDue`. This is what lets an
-honest circle settle early the instant everyone has contributed, while still
-guaranteeing that a stalling member cannot hold the circle hostage past the
-deadline.
+honest circle settle early the instant everyone has contributed, while giving
+unpaid members the configured grace period to contribute before slashing. A
+member may still contribute during this period, up until settlement occurs.
 
 ## The three passes
 

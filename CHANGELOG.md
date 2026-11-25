@@ -24,6 +24,11 @@ here without a version bump.
 
 ### Added
 
+- **Interface addition (0.2.0 → 0.2.1, both crates).** `circle`:
+  `remove_member(circle_id, creator, member)` lets the creator remove a member
+  from an `Open` circle, refunding the member's deposit in full and keeping the
+  join order (payout order) of the rest. It emits a `circle`/`remove` event with
+  `(id, member)`.
 - `scripts/deploy.sh` writes `deployments/<network>.json` with both contract
   ids, the admin and both wasm hashes once a deployment succeeds, and
   `scripts/verify-deployment.sh` reads the ids from it.

@@ -6,7 +6,7 @@ use soroban_sdk::token;
 use soroban_sdk::{panic_with_error, vec, Address, Env, Vec};
 
 use crate::errors::Error;
-use crate::types::{CircleStatus, GlobalConfig};
+use crate::types::{CircleStatus, DataKey, GlobalConfig};
 use crate::ReputationClient;
 
 /// Settle a due cycle.
@@ -20,7 +20,8 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
     let now = env.ledger().timestamp();
     let deadline = circle.started_at + (cycle as u64 + 1) * circle.period_secs;
 
-    // Due when every active member has paid, or the deadline has passed.
+    // Fully paid cycles settle immediately; missed contributions get the
+    // configured grace period before they can be slashed.
     let mut all_paid = true;
     for m in members.iter() {
         let st = crate::storage::read_member(&env, circle_id, &m);
@@ -32,7 +33,12 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
             break;
         }
     }
-    crate::validation::validate_cycle_due(all_paid, now, deadline, &env);
+    crate::validation::validate_cycle_due(
+        all_paid,
+        now,
+        deadline.saturating_add(circle.grace_secs),
+        &env,
+    );
 
     let config: GlobalConfig = crate::storage::read_config(&env);
     let tok = token::Client::new(&env, &circle.token);
@@ -45,6 +51,7 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
     let mut payers: Vec<Address> = vec![&env];
     let mut slashed_who: Vec<Address> = vec![&env];
     let mut slashed_amt: Vec<i128> = vec![&env];
+    let mut cycle_slashed: i128 = 0;
     for m in members.iter() {
         let mut st = crate::storage::read_member(&env, circle_id, &m);
         if st.defaulted {
@@ -59,6 +66,7 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
                 st.deposit_remaining -= slash;
                 pot += slash;
                 circle.slashed_total += slash;
+                cycle_slashed += slash;
                 slashed_who.push_back(m.clone());
                 slashed_amt.push_back(slash);
                 crate::events::slash(&env, circle_id, &m, slash);
@@ -72,6 +80,14 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
         }
     }
 
+    // Delete the Paid flags for this cycle; they are never read again after
+    // settlement and removing them frees temporary-storage ledger entries.
+    for p in payers.iter() {
+        env.storage()
+            .temporary()
+            .remove(&DataKey::Paid(circle_id, cycle, p));
+    }
+
     // 2) Pay the first member in join order who is active and unpaid.
     let mut recipient: Option<Address> = None;
     for m in members.iter() {
@@ -81,6 +97,7 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
             break;
         }
     }
+    let settle_recipient = recipient.clone();
     match recipient {
         Some(r) => {
             if pot > 0 {
@@ -123,6 +140,16 @@ pub fn settle_cycle(env: Env, circle_id: u32) {
             }
         }
     }
+
+    // Emit a single summary event for the settled cycle.
+    crate::events::settle(
+        &env,
+        circle_id,
+        cycle,
+        &payers,
+        cycle_slashed,
+        settle_recipient,
+    );
 
     // 3) Complete when no active member is still owed a payout; otherwise
     //    advance the cycle.

@@ -52,6 +52,8 @@ pub struct Circle {
     pub size: u32,
     /// Seconds per cycle. >= [`MIN_PERIOD_SECS`](crate::MIN_PERIOD_SECS).
     pub period_secs: u64,
+    /// Additional time after a cycle deadline before unpaid members may be slashed.
+    pub grace_secs: u64,
     pub status: CircleStatus,
     /// Ledger timestamp at activation; 0 while Open.
     pub started_at: u64,

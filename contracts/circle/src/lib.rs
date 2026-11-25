@@ -19,10 +19,13 @@ mod validation;
 
 use errors::Error;
 use soroban_sdk::{
-    contract, contractclient, contractimpl, panic_with_error, token, vec, Address, Env, Vec,
+    contract, contractclient, contractimpl, panic_with_error, token, vec, Address, Env, String, Vec,
 };
 use ttl_helpers::{extend_instance, extend_persistent};
 use types::{Circle, CircleParams, CircleStatus, DataKey, GlobalConfig, MemberState};
+
+/// Maximum number of circles returned by `get_circles` per call.
+pub const MAX_PAGE_SIZE: u32 = 50;
 
 /// Shortest cycle a circle may run, in seconds (one hour).
 ///
@@ -75,56 +78,49 @@ impl CircleContract {
     }
 
     /// Creator only: open a new circle and escrow the creator's deposit.
-    pub fn create_circle(env: Env, creator: Address, params: CircleParams) -> u32 {
-        let CircleParams {
+    pub fn create_circle(
+        env: Env,
+        creator: Address,
+        token: Address,
+        contribution: i128,
+        deposit: i128,
+        size: u32,
+        period_secs: u64,
+    ) -> u32 {
+        create_circle_inner(
+            env,
+            creator,
             token,
             contribution,
             deposit,
             size,
             period_secs,
-        } = params;
-        creator.require_auth();
-        validation::validate_create_params(contribution, deposit, size, period_secs, &env);
+            0,
+        )
+    }
 
-        let config: GlobalConfig = storage::read_config(&env);
-        let open_key = DataKey::OpenCircles(creator.clone());
-        let open_count: u32 = env.storage().persistent().get(&open_key).unwrap_or(0);
-        if open_count >= config.open_circle_cap {
-            panic_with_error!(&env, Error::OpenCircleCapExceeded);
-        }
-
-        let id: u32 = env.storage().instance().get(&DataKey::Count).unwrap_or(0);
-
-        if deposit > 0 {
-            token::Client::new(&env, &token).transfer(
-                &creator,
-                env.current_contract_address(),
-                &deposit,
-            );
-        }
-
-        let circle = Circle {
-            creator: creator.clone(),
+    /// Creator only: open a new circle with a configured settlement grace period.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_circle_with_grace(
+        env: Env,
+        creator: Address,
+        token: Address,
+        contribution: i128,
+        deposit: i128,
+        size: u32,
+        period_secs: u64,
+        grace_secs: u64,
+    ) -> u32 {
+        create_circle_inner(
+            env,
+            creator,
             token,
             contribution,
             deposit,
             size,
             period_secs,
-            status: CircleStatus::Open,
-            started_at: 0,
-            current_cycle: 0,
-            slashed_total: 0,
-            ended_at: 0,
-        };
-        storage::write_circle(&env, id, &circle);
-        storage::write_members(&env, id, &vec![&env, creator.clone()]);
-        storage::write_member(&env, id, &creator, &MemberState::new(deposit));
-        env.storage().instance().set(&DataKey::Count, &(id + 1));
-        env.storage().persistent().set(&open_key, &(open_count + 1));
-        extend_persistent(&env, &open_key);
-        extend_instance(&env);
-        events::create(&env, id, &creator);
-        id
+            grace_secs,
+        )
     }
 
     /// Member only: join an Open circle, escrowing the deposit. Activates the
@@ -189,6 +185,37 @@ impl CircleContract {
         env.storage()
             .persistent()
             .remove(&DataKey::Member(circle_id, member));
+    }
+
+    /// Creator only, while Open: remove a member and refund their deposit.
+    /// The remaining members keep their join order, so payout order is
+    /// unchanged. The creator cannot be removed; they cancel instead.
+    pub fn remove_member(env: Env, circle_id: u32, creator: Address, member: Address) {
+        creator.require_auth();
+        let circle = storage::read_circle(&env, circle_id);
+        validation::validate_is_creator(&circle, &creator, &env);
+        validation::validate_circle_open(&circle, &env);
+        validation::validate_not_creator(&circle, &member, &env);
+        let state = storage::read_member(&env, circle_id, &member);
+        let mut members = storage::read_members(&env, circle_id);
+
+        if state.deposit_remaining > 0 {
+            token::Client::new(&env, &circle.token).transfer(
+                &env.current_contract_address(),
+                &member,
+                &state.deposit_remaining,
+            );
+        }
+        // `remove` shifts the later members down, so join order, which is
+        // payout order, is kept. Mirrors `leave`.
+        if let Some(index) = members.first_index_of(&member) {
+            members.remove(index);
+        }
+        storage::write_members(&env, circle_id, &members);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Member(circle_id, member.clone()));
+        events::remove(&env, circle_id, &member);
     }
 
     /// Creator only, while Open: cancel and refund every member's deposit.
@@ -272,6 +299,139 @@ impl CircleContract {
     pub fn total_circles(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::Count).unwrap_or(0)
     }
+
+    // ---- New views (#66 #67 #68 #69) --------------------------------------
+
+    /// Returns the global configuration set at initialization.
+    /// Panics `NotInitialized` if called before `initialize`.
+    pub fn get_config(env: Env) -> GlobalConfig {
+        storage::read_config(&env)
+    }
+
+    /// Returns up to `limit` circles starting from `start` (inclusive).
+    /// `limit` is capped at [`MAX_PAGE_SIZE`]. Ids past `total_circles` are
+    /// silently absent from the result.
+    pub fn get_circles(env: Env, start: u32, limit: u32) -> Vec<(u32, Circle)> {
+        let total: u32 = env.storage().instance().get(&DataKey::Count).unwrap_or(0);
+        let effective_limit = limit.min(MAX_PAGE_SIZE);
+        let end = total.min(start.saturating_add(effective_limit));
+        let mut result: Vec<(u32, Circle)> = Vec::new(&env);
+        for id in start..end {
+            let circle = storage::read_circle(&env, id);
+            result.push_back((id, circle));
+        }
+        result
+    }
+
+    /// Returns the 0-based cycle in which `member` is due to receive the payout.
+    /// Defaulted members ahead of `member` in join order are skipped so their
+    /// removed slot does not delay those behind them.
+    /// Panics `Defaulted` if `member` itself has defaulted.
+    /// Panics `NotMember` if `member` is not in the circle.
+    pub fn payout_position(env: Env, circle_id: u32, member: Address) -> u32 {
+        let members = storage::read_members(&env, circle_id);
+        let member_state = storage::read_member(&env, circle_id, &member);
+        if member_state.defaulted {
+            panic_with_error!(&env, Error::Defaulted);
+        }
+        let mut pos = 0u32;
+        for m in members.iter() {
+            let state = storage::read_member(&env, circle_id, &m);
+            if !state.defaulted {
+                if m == member {
+                    return pos;
+                }
+                pos += 1;
+            }
+        }
+        panic_with_error!(&env, Error::NotMember)
+    }
+
+    /// Returns `true` when `member` is currently in the circle's member list,
+    /// `false` for addresses that never joined or that left before activation.
+    pub fn is_member(env: Env, circle_id: u32, member: Address) -> bool {
+        env.storage()
+            .persistent()
+            .has(&DataKey::Member(circle_id, member))
+    }
+
+    /// Returns `true` when `member` has already contributed to the circle's
+    /// current cycle, `false` otherwise (including after `settle_cycle` removes
+    /// the flag).
+    pub fn has_paid(env: Env, circle_id: u32, member: Address) -> bool {
+        let circle = storage::read_circle(&env, circle_id);
+        storage::is_paid(&env, circle_id, circle.current_cycle, &member)
+    }
+
+    /// Returns the CARGO_PKG_VERSION of this build as a string.
+    pub fn version(env: Env) -> String {
+        String::from_str(&env, env!("CARGO_PKG_VERSION"))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_circle_inner(
+    env: Env,
+    creator: Address,
+    token: Address,
+    contribution: i128,
+    deposit: i128,
+    size: u32,
+    period_secs: u64,
+    grace_secs: u64,
+) -> u32 {
+    creator.require_auth();
+    validation::validate_create_params(contribution, deposit, size, period_secs, &env);
+
+    let config: GlobalConfig = storage::read_config(&env);
+    let open_key = DataKey::OpenCircles(creator.clone());
+    let open_count: u32 = env.storage().persistent().get(&open_key).unwrap_or(0);
+    if open_count >= config.open_circle_cap {
+        panic_with_error!(&env, Error::OpenCircleCapExceeded);
+    }
+
+    let id: u32 = env.storage().instance().get(&DataKey::Count).unwrap_or(0);
+
+    if deposit > 0 {
+        token::Client::new(&env, &token).transfer(
+            &creator,
+            env.current_contract_address(),
+            &deposit,
+        );
+    }
+
+    let circle = Circle {
+        creator: creator.clone(),
+        token,
+        contribution,
+        deposit,
+        size,
+        period_secs,
+        grace_secs,
+        status: CircleStatus::Open,
+        started_at: 0,
+        current_cycle: 0,
+        slashed_total: 0,
+        ended_at: 0,
+    };
+    storage::write_circle(&env, id, &circle);
+    storage::write_members(&env, id, &vec![&env, creator.clone()]);
+    storage::write_member(
+        &env,
+        id,
+        &creator,
+        &MemberState {
+            deposit_remaining: deposit,
+            received: false,
+            defaulted: false,
+        },
+    );
+    env.storage().instance().set(&DataKey::Count, &(id + 1));
+    env.storage().persistent().set(&open_key, &(open_count + 1));
+    extend_persistent(&env, &open_key);
+    extend_instance(&env);
+    events::create(&env, id, &creator);
+    id
 }
 
 mod test;
