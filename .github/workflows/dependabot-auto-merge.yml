@@ -1,0 +1,45 @@
+name: Dependabot auto-merge
+
+# Hands-off merge for Dependabot *minor and patch* updates only. Major updates
+# are never auto-merged. This workflow only queues the merge -- branch
+# protection still gates it, so the PR merges only after every required check
+# passes (CI, secret scan, and the malware scan once it is required on main).
+#
+# It uses the plain pull_request trigger (not the privileged variant), runs no
+# repository code, and never interpolates PR-controlled text into a run step --
+# so it stays clear of the malware scanner's workflow-risk rules.
+on: pull_request
+
+permissions:
+  contents: write        # queue / squash-merge (linear history is required, so squash)
+  pull-requests: write   # enable auto-merge, and approve if org policy permits
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge for Dependabot
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    timeout-minutes: 5
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      - name: Enable auto-merge (minor/patch only)
+        if: contains(fromJSON('["version-update:semver-minor","version-update:semver-patch"]'), steps.meta.outputs.update-type)
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Satisfy the required review automatically. OGRoute currently blocks
+          # Actions from approving PRs org-wide, so this is tolerated-to-fail:
+          # once that org setting is enabled (or a ruleset lets dependabot[bot]
+          # bypass review) merging becomes fully hands-off with no further change.
+          gh pr review --approve "$PR_URL" \
+            || echo "::notice::Auto-approval not permitted by org policy; a maintainer approval is still required before this PR merges."
+          # Queue the merge; branch protection decides when it actually lands.
+          gh pr merge --auto --squash "$PR_URL"
