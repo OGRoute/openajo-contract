@@ -351,6 +351,22 @@
                           },
                           {
                             "key": {
+                              "symbol": "fee_bps"
+                            },
+                            "val": {
+                              "u32": 0
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "fee_recipient"
+                            },
+                            "val": {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "open_circle_cap"
                             },
                             "val": {

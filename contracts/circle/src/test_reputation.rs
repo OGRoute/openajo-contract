@@ -86,9 +86,16 @@ fn a_cancelled_circle_records_nothing() {
     let f = setup();
     let [a, b, _c] = &f.members;
 
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     f.client.cancel(&id, a);
 
@@ -105,9 +112,16 @@ fn leaving_before_activation_records_nothing() {
     let f = setup();
     let [a, b, _c] = &f.members;
 
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     f.client.leave(&id, b);
 
@@ -126,9 +140,16 @@ fn a_default_in_one_circle_does_not_leak_into_a_concurrent_one() {
     // Circle A: a, b, c. Circle B: b, c. Both active at the same time, with c
     // (and b) holding a separate member record in each.
     let circle_a = create_full_circle(&f);
-    let circle_b = f
-        .client
-        .create_circle(b, &f.token.address, &CONTRIB, &DEPOSIT, &2, &PERIOD);
+    let circle_b = f.client.create_circle(
+        b,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &2,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&circle_b, c);
     assert_eq!(f.client.get_circle(&circle_a).status, CircleStatus::Active);
     assert_eq!(f.client.get_circle(&circle_b).status, CircleStatus::Active);
@@ -319,7 +340,7 @@ fn each_member_is_reported_exactly_once_per_circle() {
     let before = records(&f, &everyone);
     let id = f
         .client
-        .create_circle(a, &f.token.address, &CONTRIB, &0, &4, &PERIOD);
+        .create_circle(a, &f.token.address, &CONTRIB, &0, &4, &PERIOD, &None, &0u64);
     f.client.join(&id, b);
     f.client.join(&id, c);
     f.client.join(&id, &d);
@@ -345,9 +366,16 @@ fn each_member_is_reported_exactly_once_per_circle() {
     // after a collects in cycle 0, b and c both miss cycle 1 and default in
     // the same settlement, so the pot is refunded to a and the circle ends.
     let before = records(&f, &everyone);
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &50, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &50,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     f.client.join(&id, c);
     for m in f.members.iter() {

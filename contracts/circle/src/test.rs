@@ -66,9 +66,16 @@ pub(crate) fn setup<'a>() -> Fixture<'a> {
 
 pub(crate) fn create_full_circle(f: &Fixture) -> u32 {
     let [a, b, c] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     f.client.join(&id, c);
     id
@@ -318,9 +325,16 @@ fn recipient_misses_their_own_cycle_contribution() {
 fn leave_refunds_and_cancel_refunds_all() {
     let f = setup();
     let [a, b, c] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
 
     f.client.leave(&id, b);
@@ -340,9 +354,16 @@ fn cancel_records_ended_at() {
     let f = setup();
     let [a, b, _] = &f.members;
     f.env.ledger().with_mut(|l| l.timestamp = 5_000);
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     assert_eq!(f.client.get_circle(&id).ended_at, 0);
 
@@ -362,9 +383,16 @@ fn cancel_records_ended_at() {
 fn cancel_zeroes_refunded_deposits() {
     let f = setup();
     let [a, b, c] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     assert_eq!(f.client.get_member(&id, a).deposit_remaining, DEPOSIT);
     assert_eq!(f.client.get_member(&id, b).deposit_remaining, DEPOSIT);
@@ -391,9 +419,16 @@ fn cancel_zeroes_refunded_deposits() {
 fn double_join_panics() {
     let f = setup();
     let [a, b, _] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     f.client.join(&id, b);
 }
@@ -478,9 +513,16 @@ fn settle_before_due_panics() {
 fn non_creator_cancel_panics() {
     let f = setup();
     let [a, b, _] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     f.client.cancel(&id, b);
 }
@@ -490,9 +532,16 @@ fn non_creator_cancel_panics() {
 fn creator_leave_panics() {
     let f = setup();
     let a = &f.members[0];
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.leave(&id, a);
 }
 
@@ -502,8 +551,153 @@ fn create_bad_params_panics() {
     let f = setup();
     let a = &f.members[0];
     // size 1 is invalid.
+    f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &1,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
+}
+
+#[test]
+fn zero_deposit_create_and_join_need_no_balance() {
+    let f = setup();
+    let a = Address::generate(&f.env);
+    let b = Address::generate(&f.env);
+    let id = f.client.create_circle(
+        &a,
+        &f.token.address,
+        &CONTRIB,
+        &0,
+        &2,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
+    f.client.join(&id, &b);
+    assert_eq!(f.token.balance(&a), 0);
+    assert_eq!(f.token.balance(&b), 0);
+    assert_eq!(f.token.balance(&f.client.address), 0);
+    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Active);
+}
+
+#[test]
+#[should_panic]
+fn create_zero_contribution_panics() {
+    let f = setup();
+    let a = &f.members[0];
     f.client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &1, &PERIOD);
+        .create_circle(a, &f.token.address, &0, &DEPOSIT, &3, &PERIOD, &None, &0u64);
+}
+
+#[test]
+#[should_panic]
+fn create_negative_deposit_panics() {
+    let f = setup();
+    let a = &f.members[0];
+    f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &-1,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
+}
+
+#[test]
+#[should_panic]
+fn create_size_one_panics() {
+    let f = setup();
+    let a = &f.members[0];
+    f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &1,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
+}
+
+#[test]
+#[should_panic]
+fn create_short_period_panics() {
+    let f = setup();
+    let a = &f.members[0];
+    f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &(MIN_PERIOD_SECS - 1),
+        &None,
+        &0u64,
+    );
+}
+
+#[test]
+fn create_min_contribution_accepted() {
+    let f = setup();
+    let a = &f.members[0];
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &1, &DEPOSIT, &3, &PERIOD, &None, &0u64);
+    assert_eq!(f.client.get_circle(&id).contribution, 1);
+}
+
+#[test]
+fn create_zero_deposit_accepted() {
+    let f = setup();
+    let a = &f.members[0];
+    let id = f
+        .client
+        .create_circle(a, &f.token.address, &CONTRIB, &0, &3, &PERIOD, &None, &0u64);
+    assert_eq!(f.client.get_circle(&id).deposit, 0);
+    assert_eq!(f.token.balance(a), 1_000);
+}
+
+#[test]
+fn create_min_size_accepted() {
+    let f = setup();
+    let a = &f.members[0];
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &2,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
+    assert_eq!(f.client.get_circle(&id).size, 2);
+}
+
+#[test]
+fn create_min_period_accepted() {
+    let f = setup();
+    let a = &f.members[0];
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &MIN_PERIOD_SECS,
+        &None,
+        &0u64,
+    );
+    assert_eq!(f.client.get_circle(&id).period_secs, MIN_PERIOD_SECS);
 }
 
 #[test]
@@ -656,9 +850,16 @@ fn join_completed_circle_panics_bad_status() {
 fn join_cancelled_circle_panics_bad_status() {
     let f = setup();
     let a = &f.members[0];
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.cancel(&id, a);
     assert_eq!(f.client.get_circle(&id).status, CircleStatus::Cancelled);
     let d = Address::generate(&f.env);
@@ -686,9 +887,16 @@ fn cancel_active_circle_panics_bad_status() {
 fn leave_by_non_member_panics_not_member() {
     let f = setup();
     let a = &f.members[0];
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     let outsider = Address::generate(&f.env);
     f.client.leave(&id, &outsider);
 }
@@ -762,8 +970,16 @@ fn transfer_invocation(f: &Fixture, from: &Address, amount: i128) -> AuthorizedI
 fn create_circle_requires_creator_auth() {
     let f = setup();
     let a = &f.members[0];
-    f.client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     assert_eq!(
         f.env.auths(),
         std::vec![(
@@ -777,7 +993,9 @@ fn create_circle_requires_creator_auth() {
                     CONTRIB,
                     DEPOSIT,
                     3u32,
-                    PERIOD
+                    PERIOD,
+                    Option::<soroban_sdk::BytesN<32>>::None,
+                    0u64,
                 )
                     .into_val(&f.env),
                 std::vec![transfer_invocation(&f, a, DEPOSIT)],
@@ -791,7 +1009,7 @@ fn create_circle_zero_deposit_requires_creator_auth() {
     let f = setup();
     let a = &f.members[0];
     f.client
-        .create_circle(a, &f.token.address, &CONTRIB, &0, &3, &PERIOD);
+        .create_circle(a, &f.token.address, &CONTRIB, &0, &3, &PERIOD, &None, &0u64);
     // No deposit, so no token transfer is authorised under the call.
     assert_eq!(
         f.env.auths(),
@@ -806,7 +1024,9 @@ fn create_circle_zero_deposit_requires_creator_auth() {
                     CONTRIB,
                     0i128,
                     3u32,
-                    PERIOD
+                    PERIOD,
+                    Option::<soroban_sdk::BytesN<32>>::None,
+                    0u64,
                 )
                     .into_val(&f.env),
                 std::vec![],
@@ -819,9 +1039,16 @@ fn create_circle_zero_deposit_requires_creator_auth() {
 fn join_requires_member_auth() {
     let f = setup();
     let [a, b, _] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     assert_eq!(
         f.env.auths(),
@@ -841,9 +1068,16 @@ fn join_requires_member_auth() {
 fn leave_requires_member_auth() {
     let f = setup();
     let [a, b, _] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     f.client.leave(&id, b);
     // The refund is sent by the contract itself, so only the member's
@@ -866,9 +1100,16 @@ fn leave_requires_member_auth() {
 fn cancel_requires_creator_auth() {
     let f = setup();
     let [a, b, _] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     f.client.cancel(&id, a);
     assert_eq!(
@@ -1034,9 +1275,16 @@ fn member_can_contribute_during_grace_without_being_slashed() {
 fn min_size_two_member_lifecycle() {
     let f = setup();
     let [a, b, _] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &2, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &2,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     assert_eq!(f.client.get_circle(&id).status, CircleStatus::Open);
     f.client.join(&id, b);
 
@@ -1087,7 +1335,7 @@ fn zero_deposit_lifecycle_miss_defaults_immediately() {
     let [a, b, c] = &f.members;
     let id = f
         .client
-        .create_circle(a, &f.token.address, &CONTRIB, &0, &3, &PERIOD);
+        .create_circle(a, &f.token.address, &CONTRIB, &0, &3, &PERIOD, &None, &0u64);
     f.client.join(&id, b);
     f.client.join(&id, c);
     assert_eq!(f.client.get_circle(&id).status, CircleStatus::Active);
@@ -1163,9 +1411,16 @@ fn cancel_immediately_after_creation_refunds_the_creator() {
     let f = setup();
     let [a, _, _] = &f.members;
     f.env.ledger().with_mut(|l| l.timestamp = 2_000);
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     assert_eq!(f.token.balance(a), 1_000 - DEPOSIT);
     assert_eq!(f.token.balance(&f.client.address), DEPOSIT);
     assert_eq!(f.client.get_members(&id).len(), 1);
@@ -1274,11 +1529,20 @@ fn concurrent_circles_with_overlapping_members_stay_isolated() {
     const P2: u64 = 7_200;
     let start = 1_000;
     f.env.ledger().with_mut(|l| l.timestamp = start);
-    let id1 = f
-        .client
-        .create_circle(a, &t1.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id1 = f.client.create_circle(
+        a,
+        &t1.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id1, b);
-    let id2 = f.client.create_circle(b, &t2.address, &C2, &D2, &2, &P2);
+    let id2 = f
+        .client
+        .create_circle(b, &t2.address, &C2, &D2, &2, &P2, &None, &0u64);
     f.client.join(&id1, c);
     f.client.join(&id2, c);
     assert_eq!((id1, id2), (0, 1));
@@ -1431,7 +1695,7 @@ fn partial_slash_then_default_on_second_miss_with_fractional_deposit() {
     let d = funded_member(&f);
     let id = f
         .client
-        .create_circle(a, &f.token.address, &C, &D, &4, &PERIOD);
+        .create_circle(a, &f.token.address, &C, &D, &4, &PERIOD, &None, &0u64);
     f.client.join(&id, b);
     f.client.join(&id, c);
     f.client.join(&id, &d);
@@ -1522,9 +1786,16 @@ fn leave_preserves_join_order_of_remaining_members() {
     let d = funded_member(&f);
     let e = funded_member(&f);
     let g = funded_member(&f);
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &5, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &5,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     f.client.join(&id, c);
     f.client.join(&id, &d);
@@ -1590,9 +1861,16 @@ fn rejoin_after_leaving_starts_fresh_at_the_end() {
     let f = setup();
     let [a, b, c] = &f.members;
     let d = funded_member(&f);
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &4, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &4,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     f.client.join(&id, c);
 
@@ -1909,9 +2187,16 @@ fn create_with_insufficient_balance_reverts_atomically() {
     let poor = member_with_balance(&f, DEPOSIT - 1);
     let before = f.client.total_circles();
 
-    let res = f
-        .client
-        .try_create_circle(&poor, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let res = f.client.try_create_circle(
+        &poor,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     assert!(res.is_err());
 
     // No id consumed, no circle, no member record, no funds moved.
@@ -1931,9 +2216,16 @@ fn create_with_insufficient_balance_reverts_atomically() {
     // same creator can still open a circle once funded.
     f.client.set_open_circle_cap(&1);
     StellarAssetClient::new(&f.env, &f.token.address).mint(&poor, &1);
-    let id = f
-        .client
-        .create_circle(&poor, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        &poor,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     assert_eq!(id, before);
 }
 
@@ -1941,9 +2233,16 @@ fn create_with_insufficient_balance_reverts_atomically() {
 fn join_with_insufficient_balance_reverts_atomically() {
     let f = setup();
     let [a, b, _c] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     let poor = member_with_balance(&f, DEPOSIT - 1);
     let members_before = f.client.get_members(&id);
@@ -2041,9 +2340,16 @@ fn settle_cycle_on_completed_circle_panics_bad_status() {
 fn settle_cycle_on_cancelled_circle_panics_bad_status() {
     let f = setup();
     let [a, b, _c] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     f.client.join(&id, b);
     f.client.cancel(&id, a);
     assert_eq!(f.client.get_circle(&id).status, CircleStatus::Cancelled);
@@ -2108,9 +2414,16 @@ fn views_match_state_at_every_lifecycle_stage() {
     f.env.ledger().with_mut(|l| l.timestamp = t0);
 
     // Create: Open, only the creator listed, unjoined addresses unknown.
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &0u64,
+    );
     assert_circle_view(&f, id, a, CircleStatus::Open, 0, 0, 0, 0);
     assert_eq!(
         f.client.get_members(&id),
@@ -2489,345 +2802,216 @@ fn paid_flags_removed_even_after_deadline_settlement() {
     let [a, b, c] = &f.members;
     let id = create_full_circle(&f);
 
-    // a and b pay; c misses and is slashed.
-    f.client.contribute(&id, a);
-    f.client.contribute(&id, b);
-    advance_past_deadline(&f, id);
-    f.client.settle_cycle(&id);
-
-    use crate::types::DataKey;
-    // Flags for the two payers must be gone.
-    for m in [a, b] {
-        let gone = f.env.as_contract(&f.client.address, || {
-            !f.env
-                .storage()
-                .temporary()
-                .has(&DataKey::Paid(id, 0, m.clone()))
-        });
-        assert!(
-            gone,
-            "Paid flag for payer {m:?} should be deleted after settlement"
-        );
-    }
-    // c never paid, so its key was never set; confirm it is still absent.
-    let c_absent = f.env.as_contract(&f.client.address, || {
-        !f.env
-            .storage()
-            .temporary()
-            .has(&DataKey::Paid(id, 0, c.clone()))
-    });
-    assert!(c_absent);
-}
-
-// ---- Issue #59: settle summary event --------------------------------------
-
-#[test]
-fn settle_cycle_emits_settle_event_all_paid() {
-    let f = setup();
-    let [a, b, c] = &f.members;
-    let id = create_full_circle(&f);
-
+    // Settle cycle 0 so a has received.
     for m in f.members.iter() {
         f.client.contribute(&id, m);
     }
     f.client.settle_cycle(&id);
+    assert!(f.client.get_member(&id, a).received);
 
-    let settle_topics: Vec<Val> = vec![
-        &f.env,
-        symbol_short!("circle").into_val(&f.env),
-        symbol_short!("settle").into_val(&f.env),
-    ];
-    let settle_data = (
-        id,
-        0u32,
-        soroban_sdk::vec![&f.env, a.clone(), b.clone(), c.clone()],
-        0i128,
-        Some(a.clone()),
-    )
-        .into_val(&f.env);
+    // Trying to swap a (received) with b should fail.
+    let r = f.client.try_swap_positions(&id, a, b);
+    assert_eq!(r, Err(Ok(crate::errors::Error::CannotSwap.into())));
 
-    // settle_cycle emits: payout, then settle (all paid, no slashes).
-    let payout_topics: Vec<Val> = vec![
-        &f.env,
-        symbol_short!("circle").into_val(&f.env),
-        symbol_short!("payout").into_val(&f.env),
-    ];
-    let payout_data = (id, a.clone(), 3 * CONTRIB, 0u32).into_val(&f.env);
-    let expected = vec![
-        &f.env,
-        (f.client.address.clone(), payout_topics, payout_data),
-        (f.client.address.clone(), settle_topics, settle_data),
-    ];
-    assert_eq!(
-        f.env.events().all().filter_by_contract(&f.client.address),
-        expected
-    );
+    let r2 = f.client.try_swap_positions(&id, b, a);
+    assert_eq!(r2, Err(Ok(crate::errors::Error::CannotSwap.into())));
+
+    // c with b is fine (neither received nor defaulted).
+    f.client.swap_positions(&id, b, c);
 }
 
 #[test]
-fn settle_cycle_emits_settle_event_with_slash() {
+fn swap_positions_rejects_defaulted_member() {
     let f = setup();
     let [a, b, c] = &f.members;
     let id = create_full_circle(&f);
 
-    // c misses cycle 0; a and b pay.
+    // Cycle 0: a and b pay; c misses twice to default.
+    // Cycle 0: c misses, slashed 100/150.
     f.client.contribute(&id, a);
     f.client.contribute(&id, b);
     advance_past_deadline(&f, id);
     f.client.settle_cycle(&id);
 
-    let settle_topics: Vec<Val> = vec![
-        &f.env,
-        symbol_short!("circle").into_val(&f.env),
-        symbol_short!("settle").into_val(&f.env),
-    ];
-    let settle_data = (
-        id,
-        0u32,
-        soroban_sdk::vec![&f.env, a.clone(), b.clone()],
-        CONTRIB, // 100 slashed from c's deposit
-        Some(a.clone()),
-    )
-        .into_val(&f.env);
-
-    // settle_cycle emits: slash(c), payout(a), settle.
-    // c's deposit(150) - slash(100) = 50, which equals contribution, so NOT defaulted.
-    let slash_topics: Vec<Val> = vec![
-        &f.env,
-        symbol_short!("circle").into_val(&f.env),
-        symbol_short!("slash").into_val(&f.env),
-    ];
-    let payout_topics: Vec<Val> = vec![
-        &f.env,
-        symbol_short!("circle").into_val(&f.env),
-        symbol_short!("payout").into_val(&f.env),
-    ];
-    let expected = vec![
-        &f.env,
-        (
-            f.client.address.clone(),
-            slash_topics,
-            (id, c.clone(), CONTRIB).into_val(&f.env),
-        ),
-        (
-            f.client.address.clone(),
-            payout_topics,
-            (id, a.clone(), 3 * CONTRIB, 0u32).into_val(&f.env),
-        ),
-        (f.client.address.clone(), settle_topics, settle_data),
-    ];
-    assert_eq!(
-        f.env.events().all().filter_by_contract(&f.client.address),
-        expected
-    );
-}
-
-#[test]
-fn settle_cycle_emits_settle_event_no_recipient() {
-    // Edge case: all remaining members default in the same cycle so that there
-    // is no one left to receive the payout (recipient = None).
-    //
-    // Scenario (2-member circle, deposit=150, contribution=100):
-    //   cycle 0: nobody pays → both slashed 100; deposit → 50 each; not yet
-    //            defaulted (slash == contribution); a receives the 200-unit pot.
-    //   cycle 1: nobody pays → both slashed 50; deposit → 0; both default
-    //            (slash < contribution); find-recipient skips a (received) and
-    //            b (defaulted) → recipient = None.
-    let f = setup();
-    let [a, b, _] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &2, &PERIOD);
-    f.client.join(&id, b);
-
-    // Cycle 0: nobody pays.
-    advance_past_deadline(&f, id);
-    f.client.settle_cycle(&id);
-    assert!(!f.client.get_member(&id, a).defaulted);
-    assert!(!f.client.get_member(&id, b).defaulted);
-
-    // Cycle 1: nobody pays; both default.
-    advance_past_deadline(&f, id);
-    f.client.settle_cycle(&id);
-    // Capture events immediately — env.events().all() only holds the last invocation,
-    // so any subsequent read call (get_member, get_circle) would clear the buffer.
-    let cycle1_events = f.env.events().all().filter_by_contract(&f.client.address);
-    assert!(f.client.get_member(&id, a).defaulted);
-    assert!(f.client.get_member(&id, b).defaulted);
-    assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
-
-    // The settle event for cycle 1 must have recipient = None and an empty
-    // payers list.  It is the second-to-last circle event (complete follows).
-    let settle_topics: Vec<Val> = vec![
-        &f.env,
-        symbol_short!("circle").into_val(&f.env),
-        symbol_short!("settle").into_val(&f.env),
-    ];
-    let empty_payers = soroban_sdk::Vec::<Address>::new(&f.env);
-    // cycle_slashed = 50 (a) + 50 (b) = 100
-    let settle_data_cycle1 = (id, 1u32, empty_payers, 100i128, None::<Address>).into_val(&f.env);
-
-    // Cycle 1 settle emits (in order): slash(a,50), defaulted(a), slash(b,50),
-    // defaulted(b), settle(id,1,[],100,None), complete(id).
-    // After cycle 0, each deposit is DEPOSIT − CONTRIB = 50; slash = min(50,100) = 50
-    // which is < contribution, so both default.
-    let slash_topics: Vec<Val> = vec![
-        &f.env,
-        symbol_short!("circle").into_val(&f.env),
-        symbol_short!("slash").into_val(&f.env),
-    ];
-    let default_topics: Vec<Val> = vec![
-        &f.env,
-        symbol_short!("circle").into_val(&f.env),
-        symbol_short!("default").into_val(&f.env),
-    ];
-    let complete_topics: Vec<Val> = vec![
-        &f.env,
-        symbol_short!("circle").into_val(&f.env),
-        symbol_short!("complete").into_val(&f.env),
-    ];
-    let slash_amt_1: i128 = DEPOSIT - CONTRIB; // 50
-    let expected_cycle1 = vec![
-        &f.env,
-        (
-            f.client.address.clone(),
-            slash_topics.clone(),
-            (id, a.clone(), slash_amt_1).into_val(&f.env),
-        ),
-        (
-            f.client.address.clone(),
-            default_topics.clone(),
-            (id, a.clone()).into_val(&f.env),
-        ),
-        (
-            f.client.address.clone(),
-            slash_topics,
-            (id, b.clone(), slash_amt_1).into_val(&f.env),
-        ),
-        (
-            f.client.address.clone(),
-            default_topics,
-            (id, b.clone()).into_val(&f.env),
-        ),
-        (f.client.address.clone(), settle_topics, settle_data_cycle1),
-        (
-            f.client.address.clone(),
-            complete_topics,
-            id.into_val(&f.env),
-        ),
-    ];
-    assert_eq!(cycle1_events, expected_cycle1);
-}
-
-// ---- Issue #60: is_member view --------------------------------------------
-
-#[test]
-fn is_member_true_for_member_false_for_non_member() {
-    let f = setup();
-    let [a, b, c] = &f.members;
-    let outsider = Address::generate(&f.env);
-
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
-    f.client.join(&id, b);
-
-    assert!(f.client.is_member(&id, a));
-    assert!(f.client.is_member(&id, b));
-    assert!(!f.client.is_member(&id, c)); // not yet joined
-    assert!(!f.client.is_member(&id, &outsider));
-}
-
-#[test]
-fn is_member_false_after_leave() {
-    let f = setup();
-    let [a, b, _] = &f.members;
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &DEPOSIT, &3, &PERIOD);
-    f.client.join(&id, b);
-
-    assert!(f.client.is_member(&id, b));
-    f.client.leave(&id, b);
-    assert!(!f.client.is_member(&id, b));
-}
-
-#[test]
-fn is_member_true_after_circle_activates() {
-    let f = setup();
-    let [a, b, c] = &f.members;
-    let id = create_full_circle(&f);
-    // All three are members even after the circle is Active.
-    assert!(f.client.is_member(&id, a));
-    assert!(f.client.is_member(&id, b));
-    assert!(f.client.is_member(&id, c));
-}
-
-// ---- Issue #61: has_paid view ---------------------------------------------
-
-#[test]
-fn has_paid_false_before_contribute() {
-    let f = setup();
-    let [a, b, c] = &f.members;
-    let id = create_full_circle(&f);
-    assert!(!f.client.has_paid(&id, a));
-    assert!(!f.client.has_paid(&id, b));
-    assert!(!f.client.has_paid(&id, c));
-}
-
-#[test]
-fn has_paid_true_after_contribute() {
-    let f = setup();
-    let [a, b, c] = &f.members;
-    let id = create_full_circle(&f);
-
+    // Cycle 1: c misses again, 50 slashed, defaulted.
     f.client.contribute(&id, a);
-    assert!(f.client.has_paid(&id, a));
-    assert!(!f.client.has_paid(&id, b));
-    assert!(!f.client.has_paid(&id, c));
-
     f.client.contribute(&id, b);
-    assert!(f.client.has_paid(&id, b));
+    advance_past_deadline(&f, id);
+    f.client.settle_cycle(&id);
+    assert!(f.client.get_member(&id, c).defaulted);
+
+    let r = f.client.try_swap_positions(&id, a, c);
+    assert_eq!(r, Err(Ok(crate::errors::Error::CannotSwap.into())));
 }
 
-#[test]
-fn has_paid_false_for_next_cycle_after_settlement() {
-    let f = setup();
-    let [a, b, c] = &f.members;
-    let id = create_full_circle(&f);
+// ---- Issue #48: protocol fee ----------------------------------------------
 
+#[test]
+fn set_fee_stores_config() {
+    let f = setup();
+    let fee_recv = Address::generate(&f.env);
+    f.client.set_fee(&500u32, &fee_recv);
+    // Create a circle and settle to verify fee is applied.
+    let [a, _b, _c] = &f.members;
+    let id = create_full_circle(&f);
     for m in f.members.iter() {
         f.client.contribute(&id, m);
     }
+    // Pot = 3 * 100 = 300; fee = 300 * 500/10000 = 15.
+    let before = f.token.balance(&fee_recv);
     f.client.settle_cycle(&id);
-    // Cycle advanced to 1; nobody has paid cycle 1 yet.
-    assert_eq!(f.client.get_circle(&id).current_cycle, 1);
-    assert!(!f.client.has_paid(&id, a));
-    assert!(!f.client.has_paid(&id, b));
-    assert!(!f.client.has_paid(&id, c));
+    let after = f.token.balance(&fee_recv);
+    assert_eq!(after - before, 15);
+    // Recipient (a) gets pot minus fee = 285.
+    assert_eq!(f.token.balance(a), 1_000 - DEPOSIT - CONTRIB + 285);
 }
 
 #[test]
-fn has_paid_correct_across_multiple_cycles() {
+fn fee_too_high_panics() {
+    let f = setup();
+    let fee_recv = Address::generate(&f.env);
+    // MAX_FEE_BPS is 1000; 1001 should fail.
+    let r = f.client.try_set_fee(&1001u32, &fee_recv);
+    assert_eq!(r, Err(Ok(crate::errors::Error::FeeTooHigh.into())));
+    // Exactly MAX_FEE_BPS is accepted.
+    f.client.set_fee(&1000u32, &fee_recv);
+}
+
+#[test]
+fn zero_fee_means_no_deduction() {
+    let f = setup();
+    // Default fee_bps is 0; full lifecycle should net zero as before.
+    let id = create_full_circle(&f);
+    for _cycle in 0..3u32 {
+        for m in f.members.iter() {
+            f.client.contribute(&id, m);
+        }
+        f.client.settle_cycle(&id);
+    }
+    for m in f.members.iter() {
+        assert_eq!(f.token.balance(m), 1_000);
+    }
+    assert_eq!(f.token.balance(&f.client.address), 0);
+}
+
+// ---- Issue #49: circle metadata -------------------------------------------
+
+#[test]
+fn meta_stored_and_returned() {
+    use soroban_sdk::BytesN;
+    let f = setup();
+    let [a, _b, _c] = &f.members;
+    let raw: [u8; 32] = [1u8; 32];
+    let meta = BytesN::<32>::from_array(&f.env, &raw);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &Some(meta.clone()),
+        &0u64,
+    );
+    let circle = f.client.get_circle(&id);
+    assert_eq!(circle.meta, Some(meta));
+}
+
+#[test]
+fn meta_none_by_default() {
+    let f = setup();
+    let id = create_full_circle(&f);
+    let circle = f.client.get_circle(&id);
+    assert_eq!(circle.meta, None);
+}
+
+// ---- Issue #50: scheduled start time -------------------------------------
+
+#[test]
+fn start_at_delays_activation_timestamp() {
     let f = setup();
     let [a, b, c] = &f.members;
-    let id = create_full_circle(&f);
+    let now: u64 = 5_000;
+    let future: u64 = 20_000;
+    f.env.ledger().with_mut(|l| l.timestamp = now);
 
-    // Cycle 0: a and b pay; c skips (deadline settle).
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &future,
+    );
+    f.client.join(&id, b);
+    f.client.join(&id, c); // fills the circle
+
+    let circle = f.client.get_circle(&id);
+    assert_eq!(circle.status, crate::types::CircleStatus::Active);
+    // started_at should be future, not now.
+    assert_eq!(circle.started_at, future);
+    let _ = future;
+}
+
+#[test]
+fn start_at_in_past_uses_now() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let now: u64 = 20_000;
+    let past: u64 = 5_000;
+    f.env.ledger().with_mut(|l| l.timestamp = now);
+
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &past,
+    );
+    f.client.join(&id, b);
+    f.client.join(&id, c);
+
+    let circle = f.client.get_circle(&id);
+    assert_eq!(circle.started_at, now);
+}
+
+#[test]
+fn contribute_blocked_before_start_at() {
+    let f = setup();
+    let [a, b, c] = &f.members;
+    let now: u64 = 5_000;
+    let future: u64 = 20_000;
+    f.env.ledger().with_mut(|l| l.timestamp = now);
+
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &DEPOSIT,
+        &3,
+        &PERIOD,
+        &None,
+        &future,
+    );
+    f.client.join(&id, b);
+    f.client.join(&id, c);
+
+    // Ledger is still at 5_000 < 20_000; contribution must fail.
+    let r = f.client.try_contribute(&id, a);
+    assert_eq!(r, Err(Ok(crate::errors::Error::NotStarted.into())));
+
+    // Advance past start_at; contribution succeeds.
+    f.env.ledger().with_mut(|l| l.timestamp = future + 1);
     f.client.contribute(&id, a);
     f.client.contribute(&id, b);
-    assert!(f.client.has_paid(&id, a));
-    assert!(f.client.has_paid(&id, b));
-    assert!(!f.client.has_paid(&id, c));
-    advance_past_deadline(&f, id);
+    f.client.contribute(&id, c);
     f.client.settle_cycle(&id);
-
-    // Cycle 1: has_paid resets; c can contribute again (deposit 50 left).
-    assert!(!f.client.has_paid(&id, a));
-    assert!(!f.client.has_paid(&id, b));
-    f.client.contribute(&id, a);
-    assert!(f.client.has_paid(&id, a));
-    assert!(!f.client.has_paid(&id, b));
+    assert!(f.client.get_member(&id, a).received);
 }
 
 #[test]
