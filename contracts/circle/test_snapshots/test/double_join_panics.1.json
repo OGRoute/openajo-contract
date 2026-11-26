@@ -133,28 +133,48 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
-                },
-                {
-                  "i128": "100"
-                },
-                {
-                  "i128": "150"
-                },
-                {
-                  "u32": 3
-                },
-                {
-                  "u64": "3600"
-                },
-                {
-                  "bool": false
-                },
-                {
-                  "bool": false
-                },
-                {
-                  "u32": 0
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "contribution"
+                      },
+                      "val": {
+                        "i128": "100"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "deposit"
+                      },
+                      "val": {
+                        "i128": "150"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "period_secs"
+                      },
+                      "val": {
+                        "u64": "3600"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "size"
+                      },
+                      "val": {
+                        "u32": 3
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "token"
+                      },
+                      "val": {
+                        "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -445,14 +465,6 @@
                 "map": [
                   {
                     "key": {
-                      "symbol": "auto_settle"
-                    },
-                    "val": {
-                      "bool": false
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "contribution"
                     },
                     "val": {
@@ -493,10 +505,10 @@
                   },
                   {
                     "key": {
-                      "symbol": "keeper_reward_bps"
+                      "symbol": "grace_secs"
                     },
                     "val": {
-                      "u32": 0
+                      "u64": "0"
                     }
                   },
                   {
@@ -505,14 +517,6 @@
                     },
                     "val": {
                       "u64": "3600"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "randomize_order"
-                    },
-                    "val": {
-                      "bool": false
                     }
                   },
                   {

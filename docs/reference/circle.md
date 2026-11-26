@@ -18,7 +18,7 @@ Deploy wiring calls this immediately after deployment — see
 
 ## Creating and joining
 
-### `create_circle(creator, token, contribution, deposit, size, period_secs) -> u32`
+### `create_circle(creator, params: CircleParams) -> u32`
 
 Creates an `Open` circle, adds the creator as member 0, and escrows the creator's
 deposit in the same transaction. Uses a zero-second grace period and returns the
@@ -31,7 +31,9 @@ members cannot be slashed until the ledger timestamp is strictly later than
 `cycle_deadline + grace_secs`. Fully paid cycles may still settle immediately.
 Members may contribute during the grace period until settlement occurs.
 
-Requires `creator` auth. Reverts `BadParams` unless:
+`CircleParams` is a struct of `token`, `contribution`, `deposit`, `size` and
+`period_secs`, so new circle settings can be added without growing the argument
+list. Requires `creator` auth. Reverts `BadParams` unless:
 
 | Parameter | Rule |
 | --- | --- |

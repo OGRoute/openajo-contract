@@ -7,15 +7,8 @@
 //! the reputation crate check the reporter rules; these check that running
 //! actual circles produces an accumulating, per-address record.
 
-extern crate std;
-
-use soroban_sdk::Address;
-
-use crate::test_utils::{
-    advance_past_deadline, create_full_circle, funded_member, setup, Fixture, CONTRIB, DEPOSIT,
-    PERIOD,
-};
-use crate::types::{CircleStatus, MemberState};
+use crate::test::{advance_past_deadline, create_full_circle, params, setup, Fixture};
+use crate::types::CircleStatus;
 
 /// Runs a circle to completion with every member paying every cycle.
 fn run_clean_circle(f: &Fixture) -> u32 {

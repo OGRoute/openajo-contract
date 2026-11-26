@@ -23,7 +23,7 @@ use soroban_sdk::{
     contract, contractclient, contractimpl, panic_with_error, token, vec, Address, BytesN, Env, String, Vec,
 };
 use ttl_helpers::{extend_instance, extend_persistent};
-use types::{Circle, CircleStatus, DataKey, GlobalConfig, MemberState};
+use types::{Circle, CircleParams, CircleStatus, DataKey, GlobalConfig, MemberState};
 
 /// Maximum number of circles returned by `get_circles` per call.
 pub const MAX_PAGE_SIZE: u32 = 50;
@@ -130,6 +130,16 @@ impl CircleContract {
         )
     }
 
+    /// Creator only: open a new circle using a [`CircleParams`] bundle.
+    pub fn create_circle_with_params(env: Env, creator: Address, params: CircleParams) -> u32 {
+        create_circle_inner(
+            env, creator,
+            params.token, params.contribution, params.deposit,
+            params.size, params.period_secs, 0,
+            None, 0, false, false, 0,
+        )
+    }
+
     /// Member only: join an Open circle, escrowing the deposit. Activates the
     /// circle when it reaches `size`.
     pub fn join(env: Env, circle_id: u32, member: Address) {
@@ -149,16 +159,7 @@ impl CircleContract {
         }
         members.push_back(member.clone());
         storage::write_members(&env, circle_id, &members);
-        storage::write_member(
-            &env,
-            circle_id,
-            &member,
-            &MemberState {
-                deposit_remaining: circle.deposit,
-                received: false,
-                defaulted: false,
-            },
-        );
+        storage::write_member(&env, circle_id, &member, &MemberState::new(circle.deposit));
         events::join(&env, circle_id, &member);
 
         if members.len() == circle.size {
