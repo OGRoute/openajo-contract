@@ -68,8 +68,9 @@ fn measure() -> Vec<Cost> {
         &DEPOSIT,
         &3,
         &PERIOD,
-        &None,
-        &0u64,
+        &false,
+        &false,
+        &0u32,
     );
     costs.push(last(&f.env, "create_circle"));
     f.client.join(&id, b);
@@ -87,8 +88,9 @@ fn measure() -> Vec<Cost> {
         &DEPOSIT,
         &3,
         &PERIOD,
-        &None,
-        &0u64,
+        &false,
+        &false,
+        &0u32,
     );
     f.client.join(&id2, b);
     f.client.leave(&id2, b);
@@ -99,7 +101,7 @@ fn measure() -> Vec<Cost> {
     // Settle the first circle's first cycle once it is overdue.
     let deadline = f.client.cycle_deadline(&id);
     f.env.ledger().with_mut(|l| l.timestamp = deadline + 1);
-    f.client.settle_cycle(&id);
+    f.client.settle_cycle(&id, &f.members[0]);
     costs.push(last(&f.env, "settle_cycle"));
 
     costs

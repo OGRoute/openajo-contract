@@ -24,7 +24,7 @@ fn run_clean_circle(f: &Fixture) -> u32 {
         for m in f.members.iter() {
             f.client.contribute(&id, m);
         }
-        f.client.settle_cycle(&id);
+        f.client.settle_cycle(&id, &f.members[0]);
     }
     assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
     id
@@ -60,7 +60,7 @@ fn a_default_in_one_circle_survives_a_clean_circle_later() {
         f.client.contribute(&first, a);
         f.client.contribute(&first, b);
         advance_past_deadline(&f, first);
-        f.client.settle_cycle(&first);
+        f.client.settle_cycle(&first, &f.members[0]);
     }
     assert!(f.client.get_member(&first, c).defaulted);
     assert_eq!(f.rep.get_reputation(c).defaulted, 1);
@@ -93,13 +93,14 @@ fn a_cancelled_circle_records_nothing() {
         &DEPOSIT,
         &3,
         &PERIOD,
-        &None,
-        &0u64,
+        &false,
+        &false,
+        &0u32,
     );
     f.client.join(&id, b);
     f.client.cancel(&id, a);
 
-    // Cancelling is not an outcome — nobody completed and nobody defaulted.
+    // Cancelling is not an outcome â€” nobody completed and nobody defaulted.
     for m in f.members.iter() {
         let rep = f.rep.get_reputation(m);
         assert_eq!(rep.completed, 0);
@@ -119,8 +120,9 @@ fn leaving_before_activation_records_nothing() {
         &DEPOSIT,
         &3,
         &PERIOD,
-        &None,
-        &0u64,
+        &false,
+        &false,
+        &0u32,
     );
     f.client.join(&id, b);
     f.client.leave(&id, b);
@@ -147,8 +149,9 @@ fn a_default_in_one_circle_does_not_leak_into_a_concurrent_one() {
         &DEPOSIT,
         &2,
         &PERIOD,
-        &None,
-        &0u64,
+        &false,
+        &false,
+        &0u32,
     );
     f.client.join(&circle_b, c);
     assert_eq!(f.client.get_circle(&circle_a).status, CircleStatus::Active);
@@ -157,11 +160,11 @@ fn a_default_in_one_circle_does_not_leak_into_a_concurrent_one() {
     // Cycle 0: c pays in B but skips A.
     f.client.contribute(&circle_b, b);
     f.client.contribute(&circle_b, c);
-    f.client.settle_cycle(&circle_b);
+    f.client.settle_cycle(&circle_b, &f.members[0]);
     f.client.contribute(&circle_a, a);
     f.client.contribute(&circle_a, b);
     advance_past_deadline(&f, circle_a);
-    f.client.settle_cycle(&circle_a);
+    f.client.settle_cycle(&circle_a, &f.members[0]);
 
     // The slash in A only touches c's record in A.
     let c_in_a = f.client.get_member(&circle_a, c);
@@ -182,7 +185,7 @@ fn a_default_in_one_circle_does_not_leak_into_a_concurrent_one() {
     f.client.contribute(&circle_a, a);
     f.client.contribute(&circle_a, b);
     advance_past_deadline(&f, circle_a);
-    f.client.settle_cycle(&circle_a);
+    f.client.settle_cycle(&circle_a, &f.members[0]);
     assert_eq!(
         f.client.get_circle(&circle_a).status,
         CircleStatus::Completed
@@ -216,7 +219,7 @@ fn a_default_in_one_circle_does_not_leak_into_a_concurrent_one() {
     // completes with c's deposit returned in full.
     f.client.contribute(&circle_b, b);
     f.client.contribute(&circle_b, c);
-    f.client.settle_cycle(&circle_b);
+    f.client.settle_cycle(&circle_b, &f.members[0]);
     assert_eq!(
         f.client.get_circle(&circle_b).status,
         CircleStatus::Completed
@@ -300,7 +303,7 @@ fn each_member_is_reported_exactly_once_per_circle() {
     let d = funded_member(&f);
     let everyone = [a, b, c, &d];
 
-    // Circle 1 — default before receiving. c misses cycles 0 and 1; the
+    // Circle 1 â€” default before receiving. c misses cycles 0 and 1; the
     // second miss exhausts the deposit. a and b complete.
     let before = records(&f, &everyone);
     let id = create_full_circle(&f);
@@ -308,7 +311,7 @@ fn each_member_is_reported_exactly_once_per_circle() {
         f.client.contribute(&id, a);
         f.client.contribute(&id, b);
         advance_past_deadline(&f, id);
-        f.client.settle_cycle(&id);
+        f.client.settle_cycle(&id, &f.members[0]);
         if f.client.get_circle(&id).status == CircleStatus::Active {
             // A slash that leaves the member solvent reports nothing.
             assert_reported(&f, &everyone, &before, &[None; 4]);
@@ -317,30 +320,38 @@ fn each_member_is_reported_exactly_once_per_circle() {
     assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
     assert_reported(&f, &everyone, &before, &[Some(C), Some(C), Some(D), None]);
 
-    // Circle 2 — default after receiving. a collects in cycle 0, then misses
+    // Circle 2 â€” default after receiving. a collects in cycle 0, then misses
     // cycles 1 and 2. a gets a default and no completion.
     let before = records(&f, &everyone);
     let id = create_full_circle(&f);
     for m in f.members.iter() {
         f.client.contribute(&id, m);
     }
-    f.client.settle_cycle(&id);
+    f.client.settle_cycle(&id, &f.members[0]);
     for _cycle in 1..3u32 {
         f.client.contribute(&id, b);
         f.client.contribute(&id, c);
         advance_past_deadline(&f, id);
-        f.client.settle_cycle(&id);
+        f.client.settle_cycle(&id, &f.members[0]);
     }
     assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
     assert!(f.client.get_member(&id, a).received);
     assert_reported(&f, &everyone, &before, &[Some(D), Some(C), Some(C), None]);
 
-    // Circle 3 — zero deposit, four members. d misses cycle 0 and defaults
+    // Circle 3 â€” zero deposit, four members. d misses cycle 0 and defaults
     // at once; later settlements skip d and must not report d again.
     let before = records(&f, &everyone);
-    let id = f
-        .client
-        .create_circle(a, &f.token.address, &CONTRIB, &0, &4, &PERIOD, &None, &0u64);
+    let id = f.client.create_circle(
+        a,
+        &f.token.address,
+        &CONTRIB,
+        &0,
+        &4,
+        &PERIOD,
+        &false,
+        &false,
+        &0u32,
+    );
     f.client.join(&id, b);
     f.client.join(&id, c);
     f.client.join(&id, &d);
@@ -349,7 +360,7 @@ fn each_member_is_reported_exactly_once_per_circle() {
             f.client.contribute(&id, m);
         }
         advance_past_deadline(&f, id);
-        f.client.settle_cycle(&id);
+        f.client.settle_cycle(&id, &f.members[0]);
         if f.client.get_circle(&id).status == CircleStatus::Active {
             assert_reported(&f, &everyone, &before, &[None, None, None, Some(D)]);
         }
@@ -362,7 +373,7 @@ fn each_member_is_reported_exactly_once_per_circle() {
         &[Some(C), Some(C), Some(C), Some(D)],
     );
 
-    // Circle 4 — defaults leave nobody to pay. Deposit 50 < contribution:
+    // Circle 4 â€” defaults leave nobody to pay. Deposit 50 < contribution:
     // after a collects in cycle 0, b and c both miss cycle 1 and default in
     // the same settlement, so the pot is refunded to a and the circle ends.
     let before = records(&f, &everyone);
@@ -373,19 +384,20 @@ fn each_member_is_reported_exactly_once_per_circle() {
         &50,
         &3,
         &PERIOD,
-        &None,
-        &0u64,
+        &false,
+        &false,
+        &0u32,
     );
     f.client.join(&id, b);
     f.client.join(&id, c);
     for m in f.members.iter() {
         f.client.contribute(&id, m);
     }
-    f.client.settle_cycle(&id);
+    f.client.settle_cycle(&id, &f.members[0]);
     assert_reported(&f, &everyone, &before, &[None; 4]);
     f.client.contribute(&id, a);
     advance_past_deadline(&f, id);
-    f.client.settle_cycle(&id);
+    f.client.settle_cycle(&id, &f.members[0]);
     assert_eq!(f.client.get_circle(&id).status, CircleStatus::Completed);
     assert_reported(&f, &everyone, &before, &[Some(C), Some(D), Some(D), None]);
 

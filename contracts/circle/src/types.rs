@@ -17,6 +17,8 @@ pub enum DataKey {
     Paid(u32, u32, Address),
     /// u32 count of Open circles for a creator — persistent storage.
     OpenCircles(Address),
+    /// Vec<Address> custom payout order set by creator — persistent storage.
+    PayoutOrder(u32),
 }
 
 #[contracttype]
@@ -73,6 +75,15 @@ pub struct Circle {
     /// Scheduled activation timestamp. When non-zero the circle activates at
     /// max(join_timestamp, start_at) instead of immediately on the last join.
     pub start_at: u64,
+    /// When true, `contribute` triggers settlement automatically once every
+    /// active member has paid for the current cycle.
+    pub auto_settle: bool,
+    /// When true, the members list is Fisher-Yates shuffled at activation,
+    /// randomising the initial payout order.
+    pub randomize_order: bool,
+    /// Fraction of the slashed amount paid to the settlement caller as a
+    /// keeper incentive, expressed in basis points (100 = 1 %). 0 disables.
+    pub keeper_reward_bps: u32,
 }
 
 #[contracttype]
